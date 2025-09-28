@@ -213,6 +213,7 @@
                 this.characters = [];
                 this.activeCharacters = [];
                 this.nearestCharacter = null;
+                this.lastUpdate = 0;
 
                 this.initCamera();
                 this.initGPS();
@@ -287,19 +288,29 @@
                     window.addEventListener('deviceorientationabsolute', (event) => {
                         if (event.alpha !== null) {
                             this.currentHeading = event.alpha;
-                            this.updateCharacterPointer();
+                            // Aggiorna la freccia ad ogni cambio di orientamento con throttling
+                            this.throttledUpdatePointer();
                         }
                     });
 
                     // Fallback
                     window.addEventListener('deviceorientation', (event) => {
-                        if (event.alpha !== null && this.currentHeading === 0) {
+                        if (event.alpha !== null) {
                             this.currentHeading = event.alpha;
-                            this.updateCharacterPointer();
+                            // Aggiorna la freccia ad ogni cambio di orientamento con throttling
+                            this.throttledUpdatePointer();
                         }
                     });
                 } else {
                     console.log('DeviceOrientation non supportato');
+                }
+            }
+
+            throttledUpdatePointer() {
+                const now = Date.now();
+                if (now - this.lastUpdate > 50) { // Aggiorna max ogni 50ms
+                    this.lastUpdate = now;
+                    this.updateCharacterPointer();
                 }
             }
 
