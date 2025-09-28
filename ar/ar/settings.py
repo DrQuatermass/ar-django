@@ -121,6 +121,9 @@ STATICFILES_DIRS = [
     BASE_DIR / 'static',
 ]
 
+# Static files collection for production
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
 # Media files (uploaded by users)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
