@@ -217,6 +217,7 @@
 
                 this.initCamera();
                 this.initGPS();
+                this.initOrientation();
                 this.loadCharacterData();
             }
 
@@ -259,6 +260,48 @@
                     },
                     options
                 );
+            }
+
+            async initOrientation() {
+                try {
+                    // Richiedi permessi per orientamento dispositivo (iOS 13+)
+                    if (typeof DeviceOrientationEvent !== 'undefined' &&
+                        typeof DeviceOrientationEvent.requestPermission === 'function') {
+
+                        const permission = await DeviceOrientationEvent.requestPermission();
+                        if (permission === 'granted') {
+                            this.startOrientationListening();
+                        } else {
+                            console.log('Permesso orientamento negato');
+                        }
+                    } else {
+                        // Per Android e browser più vecchi
+                        this.startOrientationListening();
+                    }
+                } catch (error) {
+                    console.log('Errore richiesta permessi orientamento:', error);
+                }
+            }
+
+            startOrientationListening() {
+                if (window.DeviceOrientationEvent) {
+                    window.addEventListener('deviceorientationabsolute', (event) => {
+                        if (event.alpha !== null) {
+                            this.currentHeading = event.alpha;
+                            this.updateCharacterPointer();
+                        }
+                    });
+
+                    // Fallback
+                    window.addEventListener('deviceorientation', (event) => {
+                        if (event.alpha !== null && this.currentHeading === 0) {
+                            this.currentHeading = event.alpha;
+                            this.updateCharacterPointer();
+                        }
+                    });
+                } else {
+                    console.log('DeviceOrientation non supportato');
+                }
             }
 
             findNearestCharacter() {
@@ -325,9 +368,12 @@
                         nearest.target_longitude
                     );
 
+                    // Calcola la direzione relativa considerando l'orientamento del dispositivo
+                    const relativeBearing = (bearing - this.currentHeading + 360) % 360;
+
                     // Mostra il puntatore
                     pointer.style.display = 'block';
-                    arrow.style.transform = `rotate(${bearing}deg)`;
+                    arrow.style.transform = `rotate(${relativeBearing}deg)`;
                     nameEl.textContent = nearest.name;
                     distanceEl.textContent = `${Math.round(nearest.distance)}m`;
                 } else {
