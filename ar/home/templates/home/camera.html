@@ -287,21 +287,17 @@
                     if (typeof DeviceOrientationEvent !== 'undefined' &&
                         typeof DeviceOrientationEvent.requestPermission === 'function') {
 
-                        console.log('Requesting iOS permission...');
                         const permission = await DeviceOrientationEvent.requestPermission();
-                        console.log('iOS permission result:', permission);
 
                         if (permission === 'granted') {
                             this.startOrientationListening();
                             status.textContent = 'ON';
                             document.getElementById('compass-button').style.display = 'none';
                         } else {
-                            console.log('Permesso orientamento negato');
                             status.textContent = 'DENIED';
                         }
                     } else {
                         // Per Android e browser più vecchi
-                        console.log('Using fallback orientation...');
                         this.startOrientationListening();
                         status.textContent = 'ON';
                         document.getElementById('compass-button').style.display = 'none';
@@ -313,11 +309,8 @@
             }
 
             startOrientationListening() {
-                console.log('Starting orientation listening...');
-
                 if (window.DeviceOrientationEvent) {
                     window.addEventListener('deviceorientationabsolute', (event) => {
-                        console.log('Orientation absolute:', event.alpha);
                         if (event.alpha !== null) {
                             this.currentHeading = event.alpha;
                             document.getElementById('compass-status').textContent = `${Math.round(event.alpha)}°`;
@@ -327,17 +320,13 @@
 
                     // Fallback
                     window.addEventListener('deviceorientation', (event) => {
-                        console.log('Orientation fallback:', event.alpha);
                         if (event.alpha !== null) {
                             this.currentHeading = event.alpha;
                             document.getElementById('compass-status').textContent = `${Math.round(event.alpha)}°`;
                             this.throttledUpdatePointer();
                         }
                     });
-
-                    console.log('Orientation listeners added');
                 } else {
-                    console.log('DeviceOrientation non supportato');
                     document.getElementById('compass-status').textContent = 'NOT_SUPPORTED';
                 }
             }
