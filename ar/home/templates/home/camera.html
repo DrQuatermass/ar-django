@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Camera</title>
+    {% load static %}
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background: #000;
+            overflow: hidden;
+        }
+
+        #camera-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #camera-stream {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        #ar-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .ar-character {
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            text-align: center;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.8);
+            transition: all 0.3s ease;
+        }
+
+        .ar-character.active {
+            width: 150px;
+            height: 150px;
+            background: rgba(255, 215, 0, 0.9);
+            box-shadow: 0 0 30px rgba(255, 215, 0, 1);
+        }
+
+        #controls {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            z-index: 20;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .info-panel {
+            background: rgba(0, 0, 0, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+            margin: 5px;
+            min-width: 120px;
+            text-align: center;
+        }
+
+        .info-title {
+            font-size: 12px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .info-value {
+            font-size: 14px;
+            color: #00ff00;
+        }
+
+        #compass {
+            width: 60px;
+            height: 60px;
+            border: 2px solid white;
+            border-radius: 50%;
+            position: relative;
+            background: rgba(0, 0, 0, 0.8);
+        }
+
+        #compass-needle {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 2px;
+            height: 25px;
+            background: red;
+            transform-origin: bottom center;
+            transform: translate(-50%, -100%);
+            transition: transform 0.3s ease;
+        }
+
+        #error-message {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            background: rgba(255, 0, 0, 0.9);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            z-index: 30;
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            #controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .info-panel {
+                margin: 2px 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="camera-container">
+        <video id="camera-stream" autoplay playsinline></video>
+        <div id="ar-overlay"></div>
+    </div>
+
+    <div id="controls">
+        <div class="info-panel">
+            <div class="info-title">GPS</div>
+            <div class="info-value" id="gps-coords">Caricamento...</div>
+        </div>
+
+        <div class="info-panel">
+            <div class="info-title">Precisione</div>
+            <div class="info-value" id="gps-accuracy">-</div>
+        </div>
+
+        <div class="info-panel">
+            <div class="info-title">Bussola</div>
+            <div id="compass">
+                <div id="compass-needle"></div>
+            </div>
+            <div class="info-value" id="compass-heading">-°</div>
+        </div>
+
+        <div class="info-panel">
+            <div class="info-title">Personaggi</div>
+            <div class="info-value" id="character-count">{{ characters.count }}</div>
+        </div>
+    </div>
+
+    <div id="error-message"></div>
+
+    <script>
+        class ARCamera {
+            constructor() {
+                this.currentPosition = null;
+                this.currentHeading = 0;
+                this.characters = [];
+                this.activeCharacters = [];
+
+                this.initCamera();
+                this.initGPS();
+                this.initCompass();
+                this.loadCharacterData();
+            }
+
+            async initCamera() {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            facingMode: 'environment',
+                            width: { ideal: 1920 },
+                            height: { ideal: 1080 }
+                        }
+                    });
+                    document.getElementById('camera-stream').srcObject = stream;
+                } catch (error) {
+                    this.showError('Errore accesso fotocamera: ' + error.message);
+                }
+            }
+
+            initGPS() {
+                if (!navigator.geolocation) {
+                    this.showError('GPS non supportato su questo dispositivo');
+                    return;
+                }
+
+                const options = {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 60000
+                };
+
+                navigator.geolocation.watchPosition(
+                    (position) => {
+                        this.currentPosition = position;
+                        this.updateGPSDisplay();
+                        this.updateAROverlay();
+                    },
+                    (error) => {
+                        this.showError('Errore GPS: ' + error.message);
+                    },
+                    options
+                );
+            }
+
+            initCompass() {
+                if (window.DeviceOrientationEvent) {
+                    window.addEventListener('deviceorientationabsolute', (event) => {
+                        this.currentHeading = event.alpha || 0;
+                        this.updateCompassDisplay();
+                        this.updateAROverlay();
+                    });
+
+                    // Fallback per dispositivi che non supportano deviceorientationabsolute
+                    window.addEventListener('deviceorientation', (event) => {
+                        if (this.currentHeading === 0) {
+                            this.currentHeading = event.alpha || 0;
+                            this.updateCompassDisplay();
+                            this.updateAROverlay();
+                        }
+                    });
+                } else {
+                    this.showError('Bussola non supportata su questo dispositivo');
+                }
+            }
+
+            async loadCharacterData() {
+                try {
+                    const response = await fetch('/api/characters/');
+                    const data = await response.json();
+                    this.characters = data.characters;
+                } catch (error) {
+                    this.showError('Errore caricamento personaggi: ' + error.message);
+                }
+            }
+
+            updateGPSDisplay() {
+                if (this.currentPosition) {
+                    const lat = this.currentPosition.coords.latitude.toFixed(6);
+                    const lng = this.currentPosition.coords.longitude.toFixed(6);
+                    const accuracy = Math.round(this.currentPosition.coords.accuracy);
+
+                    document.getElementById('gps-coords').textContent = `${lat}, ${lng}`;
+                    document.getElementById('gps-accuracy').textContent = `±${accuracy}m`;
+                }
+            }
+
+            updateCompassDisplay() {
+                const needle = document.getElementById('compass-needle');
+                const heading = document.getElementById('compass-heading');
+
+                needle.style.transform = `translate(-50%, -100%) rotate(${this.currentHeading}deg)`;
+                heading.textContent = `${Math.round(this.currentHeading)}°`;
+            }
+
+            updateAROverlay() {
+                if (!this.currentPosition || this.characters.length === 0) return;
+
+                const overlay = document.getElementById('ar-overlay');
+                overlay.innerHTML = '';
+
+                this.characters.forEach(character => {
+                    const distance = this.calculateDistance(
+                        this.currentPosition.coords.latitude,
+                        this.currentPosition.coords.longitude,
+                        character.target_latitude,
+                        character.target_longitude
+                    );
+
+                    if (distance <= character.activation_distance) {
+                        this.createARCharacter(character, distance);
+                    }
+                });
+            }
+
+            createARCharacter(character, distance) {
+                const overlay = document.getElementById('ar-overlay');
+                const characterDiv = document.createElement('div');
+                characterDiv.className = 'ar-character';
+
+                if (distance <= 5) {
+                    characterDiv.classList.add('active');
+                }
+
+                const bearing = this.calculateBearing(
+                    this.currentPosition.coords.latitude,
+                    this.currentPosition.coords.longitude,
+                    character.target_latitude,
+                    character.target_longitude
+                );
+
+                const screenPosition = this.worldToScreen(bearing, distance);
+
+                characterDiv.style.left = screenPosition.x + 'px';
+                characterDiv.style.top = screenPosition.y + 'px';
+
+                characterDiv.innerHTML = `
+                    <div>
+                        <strong>${character.name}</strong><br>
+                        ${Math.round(distance)}m
+                    </div>
+                `;
+
+                overlay.appendChild(characterDiv);
+            }
+
+            calculateDistance(lat1, lon1, lat2, lon2) {
+                const R = 6371e3; // Raggio Terra in metri
+                const φ1 = lat1 * Math.PI/180;
+                const φ2 = lat2 * Math.PI/180;
+                const Δφ = (lat2-lat1) * Math.PI/180;
+                const Δλ = (lon2-lon1) * Math.PI/180;
+
+                const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                        Math.cos(φ1) * Math.cos(φ2) *
+                        Math.sin(Δλ/2) * Math.sin(Δλ/2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+                return R * c;
+            }
+
+            calculateBearing(lat1, lon1, lat2, lon2) {
+                const φ1 = lat1 * Math.PI/180;
+                const φ2 = lat2 * Math.PI/180;
+                const Δλ = (lon2-lon1) * Math.PI/180;
+
+                const y = Math.sin(Δλ) * Math.cos(φ2);
+                const x = Math.cos(φ1) * Math.sin(φ2) -
+                        Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+
+                const θ = Math.atan2(y, x);
+
+                return (θ*180/Math.PI + 360) % 360;
+            }
+
+            worldToScreen(bearing, distance) {
+                const screenWidth = window.innerWidth;
+                const screenHeight = window.innerHeight;
+
+                // Converti bearing relativo alla direzione della fotocamera
+                const relativeBearing = (bearing - this.currentHeading + 360) % 360;
+
+                // Mappa il bearing su coordinate schermo (FOV di 90 gradi)
+                const x = screenWidth * (relativeBearing / 90) % screenWidth;
+
+                // La distanza influenza la posizione verticale
+                const y = screenHeight * 0.3 + (distance / 100) * screenHeight * 0.4;
+
+                return { x: Math.max(50, Math.min(x, screenWidth - 50)), y: Math.max(100, Math.min(y, screenHeight - 100)) };
+            }
+
+            showError(message) {
+                const errorDiv = document.getElementById('error-message');
+                errorDiv.textContent = message;
+                errorDiv.style.display = 'block';
+                setTimeout(() => {
+                    errorDiv.style.display = 'none';
+                }, 5000);
+            }
+        }
+
+        // Avvia l'applicazione AR quando la pagina è caricata
+        document.addEventListener('DOMContentLoaded', () => {
+            new ARCamera();
+        });
+
+        // Gestisci il cambio di orientamento
+        window.addEventListener('orientationchange', () => {
+            setTimeout(() => {
+                location.reload();
+            }, 500);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+from django.shortcuts import render
+from django.http import JsonResponse
+from .models import CharConfiguration
+
+# Create your views here.
+
+def camera_view(request):
+    """
+    View per la fotocamera AR con bussola e GPS
+    """
+    # Ottieni tutte le configurazioni dei personaggi
+    characters = CharConfiguration.objects.all()
+
+    context = {
+        'characters': characters,
+    }
+
+    return render(request, 'home/camera.html', context)
+
+def get_character_data(request):
+    """
+    API endpoint per ottenere i dati dei personaggi in formato JSON
+    """
+    if request.method == 'GET':
+        characters = CharConfiguration.objects.all()
+        character_data = []
+
+        for char in characters:
+            data = {
+                'id': char.id,
+                'name': char.name,
+                'target_latitude': char.target_latitude,
+                'target_longitude': char.target_longitude,
+                'activation_distance': char.activation_distance,
+                'character_image': char.character_image.url if char.character_image else None,
+            }
+            character_data.append(data)
+
+        return JsonResponse({'characters': character_data})
+
+    return JsonResponse({'error': 'Method not allowed'}, status=405)
