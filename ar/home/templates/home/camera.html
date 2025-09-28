@@ -96,25 +96,37 @@
             color: #00ff00;
         }
 
-        #compass {
-            width: 25px;
-            height: 25px;
-            border: 1px solid white;
-            border-radius: 50%;
-            position: relative;
-            background: rgba(0, 0, 0, 0.5);
+        #character-pointer {
+            position: fixed;
+            bottom: 80px;
+            left: 50%;
+            width: 60px;
+            height: 60px;
+            transform: translate(-50%, 0);
+            z-index: 15;
+            display: none;
         }
 
-        #compass-needle {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 1px;
-            height: 10px;
-            background: red;
-            transform-origin: bottom center;
-            transform: translate(-50%, -100%);
+        #pointer-arrow {
+            width: 0;
+            height: 0;
+            border-left: 15px solid transparent;
+            border-right: 15px solid transparent;
+            border-bottom: 30px solid #00ff00;
+            margin: 0 auto;
+            transform-origin: 50% 100%;
             transition: transform 0.3s ease;
+            filter: drop-shadow(0 0 5px rgba(0, 255, 0, 0.8));
+        }
+
+        #pointer-info {
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            text-align: center;
+            margin-top: 5px;
         }
 
         #error-message {
@@ -161,18 +173,21 @@
         </div>
 
         <div class="info-panel">
-            <div class="info-title">Compass</div>
-            <div style="display: flex; align-items: center; gap: 6px;">
-                <div id="compass">
-                    <div id="compass-needle"></div>
-                </div>
-                <div class="info-value" id="compass-heading">-°</div>
-            </div>
+            <div class="info-title">Nearest</div>
+            <div class="info-value" id="nearest-distance">-</div>
         </div>
 
         <div class="info-panel">
             <div class="info-title">Characters</div>
             <div class="info-value" id="character-count">{{ characters.count }}</div>
+        </div>
+    </div>
+
+    <div id="character-pointer">
+        <div id="pointer-arrow"></div>
+        <div id="pointer-info">
+            <div id="pointer-name">-</div>
+            <div id="pointer-distance">-</div>
         </div>
     </div>
 
@@ -185,10 +200,10 @@
                 this.currentHeading = 0;
                 this.characters = [];
                 this.activeCharacters = [];
+                this.nearestCharacter = null;
 
                 this.initCamera();
                 this.initGPS();
-                this.initCompass();
                 this.loadCharacterData();
             }
 
@@ -224,6 +239,7 @@
                         this.currentPosition = position;
                         this.updateGPSDisplay();
                         this.updateAROverlay();
+                        this.updateCharacterPointer();
                     },
                     (error) => {
                         this.showError('Errore GPS: ' + error.message);
@@ -232,25 +248,27 @@
                 );
             }
 
-            initCompass() {
-                if (window.DeviceOrientationEvent) {
-                    window.addEventListener('deviceorientationabsolute', (event) => {
-                        this.currentHeading = event.alpha || 0;
-                        this.updateCompassDisplay();
-                        this.updateAROverlay();
-                    });
+            findNearestCharacter() {
+                if (!this.currentPosition || this.characters.length === 0) return null;
 
-                    // Fallback per dispositivi che non supportano deviceorientationabsolute
-                    window.addEventListener('deviceorientation', (event) => {
-                        if (this.currentHeading === 0) {
-                            this.currentHeading = event.alpha || 0;
-                            this.updateCompassDisplay();
-                            this.updateAROverlay();
-                        }
-                    });
-                } else {
-                    this.showError('Bussola non supportata su questo dispositivo');
-                }
+                let nearest = null;
+                let minDistance = Infinity;
+
+                this.characters.forEach(character => {
+                    const distance = this.calculateDistance(
+                        this.currentPosition.coords.latitude,
+                        this.currentPosition.coords.longitude,
+                        character.target_latitude,
+                        character.target_longitude
+                    );
+
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        nearest = { ...character, distance: distance };
+                    }
+                });
+
+                return nearest;
             }
 
             async loadCharacterData() {
@@ -274,12 +292,35 @@
                 }
             }
 
-            updateCompassDisplay() {
-                const needle = document.getElementById('compass-needle');
-                const heading = document.getElementById('compass-heading');
+            updateCharacterPointer() {
+                const nearest = this.findNearestCharacter();
+                const pointer = document.getElementById('character-pointer');
+                const arrow = document.getElementById('pointer-arrow');
+                const nameEl = document.getElementById('pointer-name');
+                const distanceEl = document.getElementById('pointer-distance');
+                const nearestDistanceEl = document.getElementById('nearest-distance');
 
-                needle.style.transform = `translate(-50%, -100%) rotate(${this.currentHeading}deg)`;
-                heading.textContent = `${Math.round(this.currentHeading)}°`;
+                if (nearest) {
+                    // Aggiorna info nel pannello superiore
+                    nearestDistanceEl.textContent = `${Math.round(nearest.distance)}m`;
+
+                    // Calcola la direzione verso il character
+                    const bearing = this.calculateBearing(
+                        this.currentPosition.coords.latitude,
+                        this.currentPosition.coords.longitude,
+                        nearest.target_latitude,
+                        nearest.target_longitude
+                    );
+
+                    // Mostra il puntatore
+                    pointer.style.display = 'block';
+                    arrow.style.transform = `rotate(${bearing}deg)`;
+                    nameEl.textContent = nearest.name;
+                    distanceEl.textContent = `${Math.round(nearest.distance)}m`;
+                } else {
+                    pointer.style.display = 'none';
+                    nearestDistanceEl.textContent = '-';
+                }
             }
 
             updateAROverlay() {
