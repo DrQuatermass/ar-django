@@ -40,6 +40,48 @@
             position: absolute;
             width: 100px;
             height: 100px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .ar-character img {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            border: 3px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.8);
+            object-fit: cover;
+        }
+
+        .ar-character.active {
+            width: 150px;
+            height: 150px;
+        }
+
+        .ar-character.active img {
+            width: 120px;
+            height: 120px;
+            border: 4px solid rgba(255, 215, 0, 0.9);
+            box-shadow: 0 0 30px rgba(255, 215, 0, 1);
+        }
+
+        .ar-character-info {
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            text-align: center;
+            margin-top: 5px;
+            max-width: 120px;
+        }
+
+        .ar-character-fallback {
+            width: 80px;
+            height: 80px;
             background: rgba(255, 255, 255, 0.9);
             border-radius: 50%;
             display: flex;
@@ -48,13 +90,14 @@
             font-size: 12px;
             text-align: center;
             box-shadow: 0 0 20px rgba(255, 255, 255, 0.8);
-            transition: all 0.3s ease;
+            border: 3px solid rgba(255, 255, 255, 0.8);
         }
 
-        .ar-character.active {
-            width: 150px;
-            height: 150px;
+        .ar-character.active .ar-character-fallback {
+            width: 120px;
+            height: 120px;
             background: rgba(255, 215, 0, 0.9);
+            border: 4px solid rgba(255, 215, 0, 0.9);
             box-shadow: 0 0 30px rgba(255, 215, 0, 1);
         }
 
@@ -113,9 +156,10 @@
             background: #00ff00;
             margin: 0 auto;
             transform-origin: 50% 100%;
-            transition: transform 0.3s ease;
+            transition: transform 0.1s ease-out;
             position: relative;
             border-radius: 2px 2px 0 0;
+            box-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
         }
 
         #pointer-arrow::before {
@@ -310,19 +354,30 @@
 
             startOrientationListening() {
                 if (window.DeviceOrientationEvent) {
+                    // Usa deviceorientationabsolute per il nord magnetico assoluto (iOS/Android moderni)
                     window.addEventListener('deviceorientationabsolute', (event) => {
                         if (event.alpha !== null) {
+                            // Per iOS, event.alpha è relativo al nord magnetico
+                            // Per Android con supporto assoluto, è già corretto
                             this.currentHeading = event.alpha;
                             document.getElementById('compass-status').textContent = `${Math.round(event.alpha)}°`;
                             this.throttledUpdatePointer();
                         }
                     });
 
-                    // Fallback
+                    // Fallback per dispositivi senza supporto assoluto
                     window.addEventListener('deviceorientation', (event) => {
                         if (event.alpha !== null) {
-                            this.currentHeading = event.alpha;
-                            document.getElementById('compass-status').textContent = `${Math.round(event.alpha)}°`;
+                            // Su alcuni dispositivi potrebbe essere necessario correggere l'orientamento
+                            let heading = event.alpha;
+
+                            // Correzione per iOS dove l'orientamento potrebbe essere diverso
+                            if (event.webkitCompassHeading) {
+                                heading = event.webkitCompassHeading;
+                            }
+
+                            this.currentHeading = heading;
+                            document.getElementById('compass-status').textContent = `${Math.round(heading)}°`;
                             this.throttledUpdatePointer();
                         }
                     });
@@ -391,11 +446,11 @@
                 const distanceEl = document.getElementById('pointer-distance');
                 const nearestDistanceEl = document.getElementById('nearest-distance');
 
-                if (nearest) {
+                if (nearest && this.currentPosition) {
                     // Aggiorna info nel pannello superiore
                     nearestDistanceEl.textContent = `${Math.round(nearest.distance)}m`;
 
-                    // Calcola la direzione verso il character
+                    // Calcola la direzione verso il character più vicino
                     const bearing = this.calculateBearing(
                         this.currentPosition.coords.latitude,
                         this.currentPosition.coords.longitude,
@@ -404,16 +459,21 @@
                     );
 
                     // Calcola la direzione relativa considerando l'orientamento del dispositivo
+                    // La freccia punta nella direzione corretta relativa all'orientamento
                     const relativeBearing = (bearing - this.currentHeading + 360) % 360;
 
-                    // Mostra il puntatore
+                    // Mostra il puntatore e aggiorna la direzione della freccia
                     pointer.style.display = 'block';
                     arrow.style.transform = `rotate(${relativeBearing}deg)`;
                     nameEl.textContent = nearest.name;
                     distanceEl.textContent = `${Math.round(nearest.distance)}m`;
+
+                    // Aggiorna il character più vicino
+                    this.nearestCharacter = nearest;
                 } else {
                     pointer.style.display = 'none';
                     nearestDistanceEl.textContent = '-';
+                    this.nearestCharacter = null;
                 }
             }
 
@@ -458,12 +518,29 @@
                 characterDiv.style.left = screenPosition.x + 'px';
                 characterDiv.style.top = screenPosition.y + 'px';
 
-                characterDiv.innerHTML = `
-                    <div>
-                        <strong>${character.name}</strong><br>
-                        ${Math.round(distance)}m
-                    </div>
-                `;
+                // Controlla se il personaggio ha un'immagine
+                if (character.character_image) {
+                    characterDiv.innerHTML = `
+                        <img src="${character.character_image}" alt="${character.name}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                        <div class="ar-character-fallback" style="display: none;">
+                            <strong>${character.name}</strong>
+                        </div>
+                        <div class="ar-character-info">
+                            <div><strong>${character.name}</strong></div>
+                            <div>${Math.round(distance)}m</div>
+                        </div>
+                    `;
+                } else {
+                    // Fallback se non c'è immagine
+                    characterDiv.innerHTML = `
+                        <div class="ar-character-fallback">
+                            <strong>${character.name}</strong>
+                        </div>
+                        <div class="ar-character-info">
+                            <div>${Math.round(distance)}m</div>
+                        </div>
+                    `;
+                }
 
                 overlay.appendChild(characterDiv);
             }
