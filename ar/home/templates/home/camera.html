@@ -518,25 +518,12 @@
                 characterDiv.style.left = screenPosition.x + 'px';
                 characterDiv.style.top = screenPosition.y + 'px';
 
-                // Controlla se il personaggio ha un'immagine
+                // Mostra solo l'immagine del personaggio
                 if (character.character_image) {
                     characterDiv.innerHTML = `
-                        <img src="${character.character_image}" alt="${character.name}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                        <div class="ar-character-fallback" style="display: none;">
-                            <strong>${character.name}</strong>
-                        </div>
+                        <img src="${character.character_image}" alt="${character.name}">
                         <div class="ar-character-info">
                             <div><strong>${character.name}</strong></div>
-                            <div>${Math.round(distance)}m</div>
-                        </div>
-                    `;
-                } else {
-                    // Fallback se non c'è immagine
-                    characterDiv.innerHTML = `
-                        <div class="ar-character-fallback">
-                            <strong>${character.name}</strong>
-                        </div>
-                        <div class="ar-character-info">
                             <div>${Math.round(distance)}m</div>
                         </div>
                     `;
