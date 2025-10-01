@@ -50,9 +50,6 @@
         .ar-character img {
             width: 80px;
             height: 80px;
-            border-radius: 50%;
-            border: 3px solid rgba(255, 255, 255, 0.8);
-            box-shadow: 0 0 20px rgba(255, 255, 255, 0.8);
             object-fit: cover;
         }
 
@@ -64,8 +61,6 @@
         .ar-character.active img {
             width: 120px;
             height: 120px;
-            border: 4px solid rgba(255, 215, 0, 0.9);
-            box-shadow: 0 0 30px rgba(255, 215, 0, 1);
         }
 
         .ar-character-info {
@@ -506,9 +501,8 @@
                             <div>${Math.round(distance)}m</div>
                         </div>
                     `;
+                    overlay.appendChild(characterDiv);
                 }
-
-                overlay.appendChild(characterDiv);
             }
 
             calculateDistance(lat1, lon1, lat2, lon2) {
