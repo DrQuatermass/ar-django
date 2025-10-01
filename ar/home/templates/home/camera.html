@@ -396,6 +396,7 @@
                     const response = await fetch('/api/characters/');
                     const data = await response.json();
                     this.characters = data.characters;
+                    console.log('Characters loaded:', JSON.stringify(this.characters, null, 2));
                 } catch (error) {
                     this.showError('Errore caricamento personaggi: ' + error.message);
                 }
@@ -493,6 +494,7 @@
                 characterDiv.style.top = screenPosition.y + 'px';
 
                 // Mostra solo l'immagine del personaggio
+                console.log(`Character ${character.name}: image=${character.character_image}`);
                 if (character.character_image) {
                     characterDiv.innerHTML = `
                         <img src="${character.character_image}" alt="${character.name}">
@@ -502,6 +504,8 @@
                         </div>
                     `;
                     overlay.appendChild(characterDiv);
+                } else {
+                    console.log(`Character ${character.name} has no image!`);
                 }
             }
 
