@@ -1422,7 +1422,14 @@
                         );
 
                         screenPosition = this.worldToScreen(bearing, anchorDistance, character);
-                        scale = (character.base_size || 1.0) * Math.max(0.5, Math.min(2, 1 / (anchorDistance + 0.1)));
+
+                        // Se fuori campo, non mostrare
+                        if (!screenPosition || !screenPosition.visible) {
+                            console.log(`⚓ World anchor for ${character.name} out of view`);
+                            return;
+                        }
+
+                        scale = screenPosition.scale || (character.base_size || 1.0) * Math.max(0.5, Math.min(2, 1 / (anchorDistance + 0.1)));
                         usingAnchor = true;
 
                         console.log(`⚓ Using world anchor for ${character.name}: dist=${anchorDistance.toFixed(1)}m, bearing=${bearing.toFixed(0)}°`);
