@@ -1357,6 +1357,7 @@
 
                 let screenPosition;
                 let scale;
+                let usingAnchor = false; // Inizializza qui per tutti i casi
 
                 // MODALITÀ MARKER: Sistema a doppio check
                 if (character.use_marker && this.detectedMarkers.has(character.id)) {
@@ -1369,7 +1370,6 @@
 
                     // CHECK 2: Positioning marker decide DOVE mostrare (priorità: positioning marker → anchor → detection marker)
                     let positioningMarker = null;
-                    let usingAnchor = false;
 
                     if (this.detectedPositioningMarkers && this.detectedPositioningMarkers.has(character.id)) {
                         const posMarker = this.detectedPositioningMarkers.get(character.id);
