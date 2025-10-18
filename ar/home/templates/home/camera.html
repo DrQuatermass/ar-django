@@ -549,11 +549,38 @@
                     this.detectedPositioningMarkers = this.detectedPositioningMarkers || new Map();
                     this.detectedPositioningMarkers.clear();
 
-                    // Confronta con ogni DETECTION marker template
+                    // Cerca marker solo per character nell'area GPS
                     let bestMatch = null;
                     let maxMatches = 0;
 
+                    if (!this.currentPosition) {
+                        console.log('No GPS position available for marker detection');
+                        src.delete();
+                        gray.delete();
+                        keypoints.delete();
+                        descriptors.delete();
+                        return;
+                    }
+
                     for (const [charId, template] of this.markerTemplates) {
+                        const character = template.character;
+
+                        // Calcola distanza dal character
+                        const distance = this.calculateDistance(
+                            this.currentPosition.coords.latitude,
+                            this.currentPosition.coords.longitude,
+                            character.target_latitude,
+                            character.target_longitude
+                        );
+
+                        // OTTIMIZZAZIONE: Rileva marker solo se dentro l'area di attivazione
+                        if (distance > character.activation_distance) {
+                            console.log(`Skipping marker detection for ${character.name}: too far (${Math.round(distance)}m > ${character.activation_distance}m)`);
+                            continue;
+                        }
+
+                        console.log(`Detecting marker for ${character.name}: inside area (${Math.round(distance)}m)`);
+
                         const matches = this.matchFeatures(descriptors, template.descriptors);
 
                         if (matches.length > maxMatches) {
@@ -604,8 +631,9 @@
 
                             console.log(`Detection marker for ${template.character.name}: ${matches.length} matches`);
 
-                            // POSITIONING MARKER: Se esiste, cerca anche quello
-                            if (this.positioningMarkerTemplates.has(charId)) {
+                            // POSITIONING MARKER: Cerca solo se detection matches > soglia
+                            if (matches.length >= minDetectionMatches && this.positioningMarkerTemplates.has(charId)) {
+                                console.log(`Detection passed threshold, checking positioning marker for ${template.character.name}`);
                                 const posTemplate = this.positioningMarkerTemplates.get(charId);
                                 const posMatches = this.matchFeatures(descriptors, posTemplate.descriptors);
 
