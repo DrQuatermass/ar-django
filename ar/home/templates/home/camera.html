@@ -291,11 +291,13 @@
             }
 
             async initMarkerDetection() {
+                console.log('Initializing marker detection...');
+
                 // Aspetta che OpenCV sia pronto
                 const waitForOpenCV = setInterval(() => {
                     if (openCvReady) {
                         clearInterval(waitForOpenCV);
-                        console.log('Marker detection initialized with OpenCV.js');
+                        console.log('✅ OpenCV.js ready - initializing marker detection');
                         this.loadMarkerImages();
                         this.startMarkerDetectionLoop();
                     }
@@ -305,17 +307,22 @@
                 setTimeout(() => {
                     clearInterval(waitForOpenCV);
                     if (!openCvReady) {
-                        console.log('OpenCV.js failed to load - marker detection disabled');
+                        console.error('❌ OpenCV.js failed to load - marker detection disabled');
+                        document.getElementById('marker-status').textContent = 'OpenCV Error';
+                        document.getElementById('marker-status').style.color = '#ff0000';
                     }
                 }, 10000);
             }
 
             async loadMarkerImages() {
+                console.log(`Loading marker images for ${this.characters.length} characters...`);
+
                 // Carica le immagini marker per i personaggi che le hanno
                 this.markerTemplates = new Map();
                 let totalFeatures = 0;
 
                 for (const char of this.characters) {
+                    console.log(`Checking character: ${char.name}, use_marker: ${char.use_marker}, marker_image: ${char.marker_image}`);
                     if (char.use_marker && char.marker_image) {
                         try {
                             const img = await this.loadImage(char.marker_image);
