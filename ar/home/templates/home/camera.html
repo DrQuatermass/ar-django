@@ -178,6 +178,23 @@
             display: none;
         }
 
+        #debug-log {
+            position: fixed;
+            bottom: 60px;
+            left: 10px;
+            right: 10px;
+            max-height: 150px;
+            background: rgba(0, 0, 0, 0.8);
+            color: #00ff00;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 9px;
+            font-family: monospace;
+            overflow-y: auto;
+            z-index: 25;
+            display: block;
+        }
+
         @media (max-width: 768px) {
             #controls {
                 flex-direction: column;
@@ -246,6 +263,34 @@
     </div>
 
     <div id="error-message"></div>
+    <div id="debug-log"></div>
+
+    <script>
+        // Debug logger che mostra i log sullo schermo
+        const debugLog = [];
+        const originalConsoleLog = console.log;
+        const originalConsoleError = console.error;
+
+        function updateDebugDisplay() {
+            const debugDiv = document.getElementById('debug-log');
+            if (debugDiv) {
+                debugDiv.innerHTML = debugLog.slice(-10).join('<br>');
+                debugDiv.scrollTop = debugDiv.scrollHeight;
+            }
+        }
+
+        console.log = function(...args) {
+            originalConsoleLog.apply(console, args);
+            debugLog.push(`[LOG] ${args.join(' ')}`);
+            updateDebugDisplay();
+        };
+
+        console.error = function(...args) {
+            originalConsoleError.apply(console, args);
+            debugLog.push(`[ERR] ${args.join(' ')}`);
+            updateDebugDisplay();
+        };
+    </script>
 
     <script>
         // Global flag per OpenCV
