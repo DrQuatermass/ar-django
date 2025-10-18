@@ -57,4 +57,31 @@ class CharConfiguration(models.Model):
         help_text="Modalità di visualizzazione del personaggio"
     )
 
+    # Marker-based positioning
+    use_marker = models.BooleanField(
+        default=False,
+        help_text="Usa marker di riferimento per posizionamento preciso"
+    )
+    marker_image = models.ImageField(
+        upload_to='markers/',
+        blank=True,
+        null=True,
+        help_text="Immagine marker da stampare/mostrare (JPG/PNG)"
+    )
+    marker_offset_x = models.FloatField(
+        default=0.0,
+        validators=[MinValueValidator(-10), MaxValueValidator(10)],
+        help_text="Offset orizzontale dal marker in metri (positivo = destra)"
+    )
+    marker_offset_y = models.FloatField(
+        default=0.0,
+        validators=[MinValueValidator(-10), MaxValueValidator(10)],
+        help_text="Offset verticale dal marker in metri (positivo = su)"
+    )
+    marker_offset_z = models.FloatField(
+        default=0.5,
+        validators=[MinValueValidator(-10), MaxValueValidator(10)],
+        help_text="Offset profondità dal marker in metri (positivo = avanti)"
+    )
+
 

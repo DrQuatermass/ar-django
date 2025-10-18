@@ -38,6 +38,11 @@ def get_character_data(request):
                 'base_size': char.base_size,
                 'facing_direction': char.facing_direction,
                 'display_mode': char.display_mode,
+                'use_marker': char.use_marker,
+                'marker_image': char.marker_image.url if char.marker_image else None,
+                'marker_offset_x': char.marker_offset_x,
+                'marker_offset_y': char.marker_offset_y,
+                'marker_offset_z': char.marker_offset_z,
             }
             character_data.append(data)
 

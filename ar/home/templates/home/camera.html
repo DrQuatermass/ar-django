@@ -8,6 +8,8 @@
     <meta http-equiv="Expires" content="0">
     <title>AR Camera</title>
     {% load static %}
+    <!-- OpenCV.js for image feature matching -->
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
     <style>
         body {
             margin: 0;
@@ -241,6 +243,13 @@
     <div id="error-message"></div>
 
     <script>
+        // Global flag per OpenCV
+        let openCvReady = false;
+        function onOpenCvReady() {
+            openCvReady = true;
+            console.log('OpenCV.js is ready');
+        }
+
         class ARCamera {
             constructor() {
                 this.currentPosition = null;
@@ -249,11 +258,15 @@
                 this.activeCharacters = [];
                 this.nearestCharacter = null;
                 this.lastUpdate = 0;
+                this.markerDetector = null;
+                this.detectedMarkers = new Map(); // marker_id -> position
+                this.videoElement = null;
 
                 this.initCamera();
                 this.initGPS();
                 this.loadCharacterData();
                 this.setupCompassButton();
+                this.initMarkerDetection();
             }
 
             async initCamera() {
@@ -265,10 +278,178 @@
                             height: { ideal: 1080 }
                         }
                     });
-                    document.getElementById('camera-stream').srcObject = stream;
+                    this.videoElement = document.getElementById('camera-stream');
+                    this.videoElement.srcObject = stream;
                 } catch (error) {
                     this.showError('Errore accesso fotocamera: ' + error.message);
                 }
+            }
+
+            async initMarkerDetection() {
+                // Aspetta che OpenCV sia pronto
+                const waitForOpenCV = setInterval(() => {
+                    if (openCvReady) {
+                        clearInterval(waitForOpenCV);
+                        console.log('Marker detection initialized with OpenCV.js');
+                        this.loadMarkerImages();
+                        this.startMarkerDetectionLoop();
+                    }
+                }, 100);
+
+                // Timeout dopo 10 secondi
+                setTimeout(() => {
+                    clearInterval(waitForOpenCV);
+                    if (!openCvReady) {
+                        console.log('OpenCV.js failed to load - marker detection disabled');
+                    }
+                }, 10000);
+            }
+
+            async loadMarkerImages() {
+                // Carica le immagini marker per i personaggi che le hanno
+                this.markerTemplates = new Map();
+
+                for (const char of this.characters) {
+                    if (char.use_marker && char.marker_image) {
+                        try {
+                            const img = await this.loadImage(char.marker_image);
+                            const mat = cv.imread(img);
+
+                            // Estrai features dell'immagine marker
+                            const gray = new cv.Mat();
+                            cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY);
+
+                            const orb = new cv.ORB(500);
+                            const keypoints = new cv.KeyPointVector();
+                            const descriptors = new cv.Mat();
+                            orb.detectAndCompute(gray, new cv.Mat(), keypoints, descriptors);
+
+                            this.markerTemplates.set(char.id, {
+                                character: char,
+                                keypoints: keypoints,
+                                descriptors: descriptors,
+                                width: mat.cols,
+                                height: mat.rows
+                            });
+
+                            mat.delete();
+                            gray.delete();
+                            console.log(`Loaded marker for character: ${char.name}`);
+                        } catch (error) {
+                            console.log(`Failed to load marker for ${char.name}:`, error);
+                        }
+                    }
+                }
+            }
+
+            loadImage(url) {
+                return new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.crossOrigin = 'anonymous';
+                    img.onload = () => resolve(img);
+                    img.onerror = reject;
+                    img.src = url;
+                });
+            }
+
+            startMarkerDetectionLoop() {
+                // Canvas nascosto per processing
+                this.processingCanvas = document.createElement('canvas');
+                this.processingCtx = this.processingCanvas.getContext('2d');
+
+                // Esegui detection ogni 500ms
+                setInterval(() => {
+                    if (openCvReady && this.videoElement && this.videoElement.readyState === 4 && this.markerTemplates.size > 0) {
+                        this.detectMarkersInFrame();
+                    }
+                }, 500);
+            }
+
+            detectMarkersInFrame() {
+                try {
+                    // Cattura frame dal video
+                    this.processingCanvas.width = this.videoElement.videoWidth;
+                    this.processingCanvas.height = this.videoElement.videoHeight;
+                    this.processingCtx.drawImage(this.videoElement, 0, 0);
+
+                    const src = cv.imread(this.processingCanvas);
+                    const gray = new cv.Mat();
+                    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+                    // Estrai features dal frame corrente
+                    const orb = new cv.ORB(500);
+                    const keypoints = new cv.KeyPointVector();
+                    const descriptors = new cv.Mat();
+                    orb.detectAndCompute(gray, new cv.Mat(), keypoints, descriptors);
+
+                    this.detectedMarkers.clear();
+
+                    // Confronta con ogni marker template
+                    for (const [charId, template] of this.markerTemplates) {
+                        const matches = this.matchFeatures(descriptors, template.descriptors);
+
+                        if (matches.length > 20) { // Threshold di match
+                            // Calcola posizione media dei match
+                            let centerX = 0, centerY = 0;
+                            matches.forEach(m => {
+                                const kp = keypoints.get(m.queryIdx);
+                                centerX += kp.pt.x;
+                                centerY += kp.pt.y;
+                            });
+                            centerX /= matches.length;
+                            centerY /= matches.length;
+
+                            // Stima dimensione basata sui keypoint
+                            const avgScale = this.videoElement.videoWidth / template.width;
+
+                            this.detectedMarkers.set(charId, {
+                                character: template.character,
+                                screenX: centerX,
+                                screenY: centerY,
+                                matches: matches.length,
+                                confidence: Math.min(1.0, matches.length / 50),
+                                bbox: [centerX - 50, centerY - 50, 100, 100] // Stima approssimativa
+                            });
+
+                            console.log(`Marker detected for ${template.character.name}: ${matches.length} matches`);
+                        }
+                    }
+
+                    // Cleanup
+                    src.delete();
+                    gray.delete();
+                    keypoints.delete();
+                    descriptors.delete();
+
+                    // Aggiorna overlay se ci sono marker rilevati
+                    if (this.detectedMarkers.size > 0) {
+                        this.updateAROverlay();
+                    }
+                } catch (error) {
+                    console.log('Detection error:', error);
+                }
+            }
+
+            matchFeatures(desc1, desc2) {
+                if (!desc1 || !desc2 || desc1.rows === 0 || desc2.rows === 0) {
+                    return [];
+                }
+
+                const bf = new cv.BFMatcher(cv.NORM_HAMMING, true);
+                const matches = new cv.DMatchVector();
+                bf.match(desc1, desc2, matches);
+
+                // Filtra i match migliori
+                const goodMatches = [];
+                for (let i = 0; i < matches.size(); i++) {
+                    const match = matches.get(i);
+                    if (match.distance < 50) { // Threshold di similarità
+                        goodMatches.push(match);
+                    }
+                }
+
+                matches.delete();
+                return goodMatches;
             }
 
             initGPS() {
@@ -489,26 +670,61 @@
 
             createARCharacter(character, distance) {
                 const overlay = document.getElementById('ar-overlay');
+                let screenPosition;
+                let scale;
 
-                const bearing = this.calculateBearing(
-                    this.currentPosition.coords.latitude,
-                    this.currentPosition.coords.longitude,
-                    character.target_latitude,
-                    character.target_longitude
-                );
+                // MODALITÀ MARKER: Se il personaggio usa marker e il marker è rilevato
+                if (character.use_marker && this.detectedMarkers.has(character.id)) {
+                    const marker = this.detectedMarkers.get(character.id);
 
-                const screenPosition = this.worldToScreen(bearing, distance, character);
+                    // Calcola posizione relativa al marker rilevato
+                    const markerX = marker.screenX;
+                    const markerY = marker.screenY;
+                    const markerWidth = marker.bbox[2];
 
-                // Se il personaggio è fuori dal campo visivo, non mostrarlo
-                if (!screenPosition || !screenPosition.visible) {
+                    // Converti coordinate video in coordinate schermo
+                    const scaleX = window.innerWidth / this.videoElement.videoWidth;
+                    const scaleY = window.innerHeight / this.videoElement.videoHeight;
+
+                    // Applica offset dal marker
+                    const pixelsPerMeter = markerWidth * scaleX / 0.3; // Assumo oggetto di ~30cm
+                    screenPosition = {
+                        x: (markerX * scaleX) + (character.marker_offset_x * pixelsPerMeter),
+                        y: (markerY * scaleY) + (character.marker_offset_y * pixelsPerMeter),
+                        visible: true
+                    };
+
+                    // Scala basata sulla dimensione del marker e distanza stimata
+                    const estimatedDistance = 1.0 / (markerWidth / this.videoElement.videoWidth);
+                    scale = (character.base_size || 1.0) * Math.max(0.5, Math.min(2, 1 / estimatedDistance));
+
+                    console.log(`Character ${character.name}: MARKER MODE - matches=${marker.matches}, confidence=${marker.confidence.toFixed(2)}`);
+                } else if (character.use_marker) {
+                    // Marker abilitato ma non rilevato - non mostrare
                     return;
+                } else {
+                    // MODALITÀ GPS: Usa bearing e distanza normale
+                    const bearing = this.calculateBearing(
+                        this.currentPosition.coords.latitude,
+                        this.currentPosition.coords.longitude,
+                        character.target_latitude,
+                        character.target_longitude
+                    );
+
+                    screenPosition = this.worldToScreen(bearing, distance, character);
+
+                    // Se il personaggio è fuori dal campo visivo, non mostrarlo
+                    if (!screenPosition || !screenPosition.visible) {
+                        return;
+                    }
+
+                    scale = screenPosition.scale;
                 }
 
                 const characterDiv = document.createElement('div');
                 characterDiv.className = 'ar-character';
 
-                // Applica la scala in base alla distanza e base_size del personaggio
-                const scale = screenPosition.scale;
+                // Applica la scala
                 const baseSize = 80;
                 const imgSize = baseSize * scale;
 
