@@ -1185,52 +1185,24 @@
             }
 
             createWorldAnchor(charId, character, screenX, screenY) {
-                // Calcola posizione GPS stimata della pianta/marker basata su:
-                // 1. Posizione corrente GPS dell'utente
-                // 2. Heading compass
-                // 3. Distanza stimata (assumi 2-3 metri davanti alla camera)
+                // APPROCCIO RELATIVO: Usa GPS configurato del character come riferimento fisso
+                // Elimina GPS drift perché usa coordinate fisse invece di GPS utente variabile
 
-                const videoWidth = this.videoElement.videoWidth;
-                const videoHeight = this.videoElement.videoHeight;
-
-                // Calcola offset angolare dal centro dello schermo
-                const centerX = videoWidth / 2;
-                const centerY = videoHeight / 2;
-                const offsetX = screenX - centerX;
-                const offsetY = screenY - centerY;
-
-                // FOV orizzontale tipico smartphone (~60-70 gradi)
-                const horizontalFOV = 65; // gradi
-                const angleOffset = (offsetX / videoWidth) * horizontalFOV;
-
-                // Bearing verso il marker = compass heading + offset angolare
-                const markerBearing = (this.currentHeading + angleOffset + 360) % 360;
-
-                // Stima distanza (assumiamo 2 metri di default per oggetti indoor)
-                const estimatedDistance = 2.0; // metri
-
-                // Calcola coordinate GPS del marker
-                const markerCoords = this.calculateDestination(
-                    this.currentPosition.coords.latitude,
-                    this.currentPosition.coords.longitude,
-                    markerBearing,
-                    estimatedDistance
-                );
-
+                // Usa semplicemente il GPS configurato del character come anchor
+                // Il marker viene rilevato quando sei nell'area del character, quindi
+                // la posizione configurata È la posizione del marker!
                 const anchor = {
-                    lat: markerCoords.lat,
-                    lng: markerCoords.lng,
-                    altitude: this.currentPosition.coords.altitude || 0,
-                    heading: markerBearing,
+                    // GPS configurato = punto di riferimento FISSO (no drift)
+                    lat: character.target_latitude,
+                    lng: character.target_longitude,
+                    altitude: character.altitude || 0,
                     timestamp: Date.now(),
-                    screenX: screenX,
-                    screenY: screenY,
                     isAnchored: true,
-                    distance: estimatedDistance
+                    type: 'fixed_reference'
                 };
 
                 this.worldAnchors.set(charId, anchor);
-                console.log(`⚓ World anchor created for ${character.name} at GPS ${anchor.lat.toFixed(6)}, ${anchor.lng.toFixed(6)} (bearing: ${markerBearing.toFixed(0)}°, ~${estimatedDistance}m)`);
+                console.log(`⚓ Fixed anchor created for ${character.name} at configured GPS ${anchor.lat.toFixed(6)}, ${anchor.lng.toFixed(6)} (no GPS drift)`);
             }
 
             calculateDestination(lat, lon, bearing, distance) {
