@@ -407,8 +407,8 @@
                             const gray = new cv.Mat();
                             cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY);
 
-                            // Estrai molte features per riconoscimento robusto
-                            const orb = new cv.ORB(2000);
+                            // Estrai features (500 funziona meglio su iOS)
+                            const orb = new cv.ORB(500);
                             const keypoints = new cv.KeyPointVector();
                             const descriptors = new cv.Mat();
                             orb.detectAndCompute(gray, new cv.Mat(), keypoints, descriptors);
@@ -480,7 +480,7 @@
                     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
                     // Estrai features dal frame corrente
-                    const orb = new cv.ORB(2000);
+                    const orb = new cv.ORB(500);
                     const keypoints = new cv.KeyPointVector();
                     const descriptors = new cv.Mat();
                     orb.detectAndCompute(gray, new cv.Mat(), keypoints, descriptors);
