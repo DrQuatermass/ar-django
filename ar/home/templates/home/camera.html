@@ -416,9 +416,9 @@
                             bestMatch = { charId, template, matches };
                         }
 
-                        // Soglia adattiva: per scene ampie bastano meno match in percentuale
-                        const minMatches = Math.max(15, template.featureCount * 0.05); // Min 15 o 5% delle features
-                        if (matches.length > minMatches) {
+                        // Soglia match: richiede un numero significativo per evitare falsi positivi
+                        const minMatches = Math.max(40, template.featureCount * 0.10); // Min 40 o 10% delle features
+                        if (matches.length >= minMatches) {
                             // Calcola posizione media dei match
                             let centerX = 0, centerY = 0;
                             matches.forEach(m => {
@@ -453,7 +453,7 @@
                         markerStatus.style.color = '#00ff00';
                     } else if (bestMatch && maxMatches > 0) {
                         const template = bestMatch.template;
-                        const minNeeded = Math.max(15, template.featureCount * 0.05);
+                        const minNeeded = Math.max(40, template.featureCount * 0.10);
                         markerStatus.textContent = `🟡 ${maxMatches}/${Math.round(minNeeded)} matches`;
                         markerStatus.style.color = '#ff9900';
                     } else {
