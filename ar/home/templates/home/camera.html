@@ -379,7 +379,7 @@
                 this.OUTLIER_THRESHOLD = 1.2; // Soglia outlier: 120% distanza media (più aggressivo)
 
                 // World anchoring - ancora i character nello spazio reale
-                this.worldAnchors = new Map(); // charId -> { lat, lng, altitude, heading, timestamp }
+                this.worldAnchors = new Map(); // charId -> { screenX, screenY, relativeBearing, distance, cameraHeading, timestamp }
 
                 this.initCamera();
                 this.initGPS();
@@ -1224,31 +1224,6 @@
                 console.log(`⚓ Screen anchor created for ${character.name} at screen pos (${screenX.toFixed(0)}, ${screenY.toFixed(0)}), relative bearing=${relativeBearing.toFixed(0)}°, dist=${distance.toFixed(1)}m`);
             }
 
-            calculateDestination(lat, lon, bearing, distance) {
-                // Calcola coordinate GPS dato punto partenza, bearing e distanza
-                // Formula: Destination point given distance and bearing from start point
-                const R = 6371e3; // Raggio Terra in metri
-                const δ = distance / R; // Distanza angolare in radianti
-                const θ = bearing * Math.PI / 180; // Bearing in radianti
-
-                const φ1 = lat * Math.PI / 180;
-                const λ1 = lon * Math.PI / 180;
-
-                const φ2 = Math.asin(
-                    Math.sin(φ1) * Math.cos(δ) +
-                    Math.cos(φ1) * Math.sin(δ) * Math.cos(θ)
-                );
-
-                const λ2 = λ1 + Math.atan2(
-                    Math.sin(θ) * Math.sin(δ) * Math.cos(φ1),
-                    Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2)
-                );
-
-                return {
-                    lat: φ2 * 180 / Math.PI,
-                    lng: λ2 * 180 / Math.PI
-                };
-            }
 
             async loadCharacterData() {
                 try {
@@ -1420,10 +1395,6 @@
                             positioningMarker = posMarker;
                         }
                     }
-
-                    // DEBUG: Verifica stato anchor
-                    const hasAnchor = this.worldAnchors.has(character.id);
-                    console.log(`🔍 ${character.name}: posMarker=${!!positioningMarker}, hasAnchor=${hasAnchor}, anchors=${this.worldAnchors.size}`);
 
                     // PRIORITÀ: positioning marker > anchor > detection marker
                     if (positioningMarker) {
@@ -1625,12 +1596,9 @@
                     relativeBearing -= 360;
                 }
 
-                console.log(`📐 ${character.name}: bearing=${bearing.toFixed(0)}°, heading=${this.currentHeading.toFixed(0)}°, relative=${relativeBearing.toFixed(0)}°, FOV=±${FOV/2}°`);
-
                 // Controlla se il personaggio è nel campo visivo
                 if (Math.abs(relativeBearing) > FOV / 2) {
                     // Fuori dal campo visivo - non mostrare
-                    console.log(`❌ ${character.name} out of FOV: |${relativeBearing.toFixed(0)}°| > ${FOV/2}°`);
                     return null;
                 }
 
