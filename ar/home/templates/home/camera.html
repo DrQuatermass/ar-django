@@ -699,6 +699,18 @@
                                     posCenterX /= posMatches.length;
                                     posCenterY /= posMatches.length;
 
+                                    // SMOOTHING per positioning marker (usa history separata)
+                                    if (!state.positioningHistory) {
+                                        state.positioningHistory = [];
+                                    }
+                                    state.positioningHistory.push({ x: posCenterX, y: posCenterY });
+                                    if (state.positioningHistory.length > this.POSITION_HISTORY_SIZE) {
+                                        state.positioningHistory.shift();
+                                    }
+
+                                    const smoothPosX = state.positioningHistory.reduce((sum, p) => sum + p.x, 0) / state.positioningHistory.length;
+                                    const smoothPosY = state.positioningHistory.reduce((sum, p) => sum + p.y, 0) / state.positioningHistory.length;
+
                                     const posBboxX = Math.max(0, posMinX - padding);
                                     const posBboxY = Math.max(0, posMinY - padding);
                                     const posBboxWidth = (posMaxX - posMinX) + padding * 2;
@@ -709,8 +721,8 @@
 
                                     this.detectedPositioningMarkers.set(charId, {
                                         character: template.character,
-                                        screenX: posCenterX,
-                                        screenY: posCenterY,
+                                        screenX: smoothPosX,
+                                        screenY: smoothPosY,
                                         matches: posMatches.length,
                                         bbox: [posBboxX, posBboxY, posBboxWidth, posBboxHeight],
                                         matchedKeypoints: posMatchedKeypoints,
@@ -725,17 +737,28 @@
                     }
 
                     // PERSISTENZA TEMPORALE: Mantieni visibili character recentemente visti
+                    // MA SOLO se NON usano positioning marker (altrimenti devono seguire il marker in real-time)
                     const now = Date.now();
                     const PERSISTENCE_MS = this.PERSISTENCE_FRAMES * 500; // 500ms per frame
 
                     for (const [charId, state] of this.characterStates) {
                         const timeSinceLastSeen = now - state.lastSeen;
+                        const character = this.characters.find(c => c.id === charId);
 
                         // Se il character era visibile e non è passato troppo tempo, mantienilo visibile
                         if (state.visible && timeSinceLastSeen < PERSISTENCE_MS) {
                             if (!this.detectedMarkers.has(charId)) {
-                                // Marker non rilevato questo frame, ma mantieni l'ultima posizione
-                                const character = this.characters.find(c => c.id === charId);
+                                // Marker non rilevato questo frame
+
+                                // SKIP persistenza se il character usa positioning marker
+                                // (deve seguire il marker in tempo reale, non persistere)
+                                if (character && character.positioning_marker_image) {
+                                    console.log(`Skipping persistence for ${character.name}: uses positioning marker`);
+                                    state.visible = false;
+                                    continue;
+                                }
+
+                                // Applica persistenza solo per character senza positioning marker
                                 if (character && state.positionHistory.length > 0) {
                                     const lastPos = state.positionHistory[state.positionHistory.length - 1];
                                     console.log(`Maintaining ${character.name} via persistence (${Math.round(timeSinceLastSeen)}ms ago)`);
