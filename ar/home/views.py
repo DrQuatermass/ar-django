@@ -33,6 +33,11 @@ def get_character_data(request):
                 'target_longitude': char.target_longitude,
                 'activation_distance': char.activation_distance,
                 'character_image': char.character_image.url if char.character_image else None,
+                'altitude': char.altitude,
+                'height_offset': char.height_offset,
+                'base_size': char.base_size,
+                'facing_direction': char.facing_direction,
+                'display_mode': char.display_mode,
             }
             character_data.append(data)
 
