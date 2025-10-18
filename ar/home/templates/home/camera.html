@@ -226,6 +226,11 @@
             <div class="info-title">Characters</div>
             <div class="info-value" id="character-count">{{ characters.count }}</div>
         </div>
+
+        <div class="info-panel">
+            <div class="info-title">Marker</div>
+            <div class="info-value" id="marker-status">-</div>
+        </div>
     </div>
 
     <div id="character-pointer">
@@ -308,6 +313,7 @@
             async loadMarkerImages() {
                 // Carica le immagini marker per i personaggi che le hanno
                 this.markerTemplates = new Map();
+                let totalFeatures = 0;
 
                 for (const char of this.characters) {
                     if (char.use_marker && char.marker_image) {
@@ -324,21 +330,35 @@
                             const descriptors = new cv.Mat();
                             orb.detectAndCompute(gray, new cv.Mat(), keypoints, descriptors);
 
+                            const featureCount = keypoints.size();
+                            totalFeatures += featureCount;
+
                             this.markerTemplates.set(char.id, {
                                 character: char,
                                 keypoints: keypoints,
                                 descriptors: descriptors,
                                 width: mat.cols,
-                                height: mat.rows
+                                height: mat.rows,
+                                featureCount: featureCount
                             });
 
                             mat.delete();
                             gray.delete();
-                            console.log(`Loaded marker for character: ${char.name}`);
+                            console.log(`Loaded marker for ${char.name}: ${featureCount} features extracted`);
                         } catch (error) {
                             console.log(`Failed to load marker for ${char.name}:`, error);
                         }
                     }
+                }
+
+                // Aggiorna UI con info sui marker caricati
+                const markerStatus = document.getElementById('marker-status');
+                if (this.markerTemplates.size > 0) {
+                    markerStatus.textContent = `${this.markerTemplates.size} loaded (${totalFeatures} features)`;
+                    markerStatus.style.color = '#00ff00';
+                } else {
+                    markerStatus.textContent = 'None';
+                    markerStatus.style.color = '#ff9900';
                 }
             }
 
@@ -385,8 +405,16 @@
                     this.detectedMarkers.clear();
 
                     // Confronta con ogni marker template
+                    let bestMatch = null;
+                    let maxMatches = 0;
+
                     for (const [charId, template] of this.markerTemplates) {
                         const matches = this.matchFeatures(descriptors, template.descriptors);
+
+                        if (matches.length > maxMatches) {
+                            maxMatches = matches.length;
+                            bestMatch = { charId, template, matches };
+                        }
 
                         if (matches.length > 20) { // Threshold di match
                             // Calcola posizione media dei match
@@ -413,6 +441,20 @@
 
                             console.log(`Marker detected for ${template.character.name}: ${matches.length} matches`);
                         }
+                    }
+
+                    // Aggiorna UI con status detection
+                    const markerStatus = document.getElementById('marker-status');
+                    if (this.detectedMarkers.size > 0) {
+                        const detected = Array.from(this.detectedMarkers.values())[0];
+                        markerStatus.textContent = `🟢 ${detected.matches} matches`;
+                        markerStatus.style.color = '#00ff00';
+                    } else if (bestMatch && maxMatches > 0) {
+                        markerStatus.textContent = `🟡 ${maxMatches} matches (need 20+)`;
+                        markerStatus.style.color = '#ff9900';
+                    } else {
+                        markerStatus.textContent = `🔴 No matches`;
+                        markerStatus.style.color = '#ff0000';
                     }
 
                     // Cleanup
