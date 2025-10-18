@@ -396,8 +396,9 @@
                             const ctx = canvas.getContext('2d');
                             ctx.drawImage(img, 0, 0);
 
-                            // Leggi da canvas invece che direttamente dall'img
-                            const mat = cv.imread(canvas);
+                            // Ottieni i dati dell'immagine e crea Mat manualmente
+                            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                            const mat = cv.matFromImageData(imageData);
 
                             // Estrai features dell'immagine marker
                             const gray = new cv.Mat();
