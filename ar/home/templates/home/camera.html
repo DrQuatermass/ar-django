@@ -666,11 +666,17 @@
                                 console.log(`Filtered detection keypoints: ${filteredDetectionCount}/${matches.length} kept`);
                             }
 
-                            const padding = 20;
-                            const bboxX = Math.max(0, minX - padding);
-                            const bboxY = Math.max(0, minY - padding);
-                            const bboxWidth = (maxX - minX) + padding * 2;
-                            const bboxHeight = (maxY - minY) + padding * 2;
+                            // Padding PERCENTUALE (30% della dimensione marker) invece di fisso
+                            const markerWidth = maxX - minX;
+                            const markerHeight = maxY - minY;
+                            const paddingPercent = 0.3; // 30% della dimensione
+                            const paddingX = markerWidth * paddingPercent;
+                            const paddingY = markerHeight * paddingPercent;
+
+                            const bboxX = Math.max(0, minX - paddingX);
+                            const bboxY = Math.max(0, minY - paddingY);
+                            const bboxWidth = markerWidth + paddingX * 2;
+                            const bboxHeight = markerHeight + paddingY * 2;
 
                             // ISTERESI: Soglie diverse per mostrare/nascondere (evita flickering)
                             let showCharacter = false;
@@ -801,10 +807,17 @@
                                     const smoothPosX = state.positioningHistory.reduce((sum, p) => sum + p.x, 0) / state.positioningHistory.length;
                                     const smoothPosY = state.positioningHistory.reduce((sum, p) => sum + p.y, 0) / state.positioningHistory.length;
 
-                                    const posBboxX = Math.max(0, posMinX - padding);
-                                    const posBboxY = Math.max(0, posMinY - padding);
-                                    const posBboxWidth = (posMaxX - posMinX) + padding * 2;
-                                    const posBboxHeight = (posMaxY - posMinY) + padding * 2;
+                                    // Padding PERCENTUALE anche per positioning marker
+                                    const posMarkerWidth = posMaxX - posMinX;
+                                    const posMarkerHeight = posMaxY - posMinY;
+                                    const posPaddingPercent = 0.3; // 30% della dimensione
+                                    const posPaddingX = posMarkerWidth * posPaddingPercent;
+                                    const posPaddingY = posMarkerHeight * posPaddingPercent;
+
+                                    const posBboxX = Math.max(0, posMinX - posPaddingX);
+                                    const posBboxY = Math.max(0, posMinY - posPaddingY);
+                                    const posBboxWidth = posMarkerWidth + posPaddingX * 2;
+                                    const posBboxHeight = posMarkerHeight + posPaddingY * 2;
 
                                     // Soglia positioning marker: richiede match di qualità
                                     const minPositioningMatches = 40;
