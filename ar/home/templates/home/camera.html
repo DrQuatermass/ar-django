@@ -192,7 +192,33 @@
             font-family: monospace;
             overflow-y: auto;
             z-index: 25;
+            display: none;
+        }
+
+        #debug-log.visible {
             display: block;
+        }
+
+        #toggle-debug {
+            position: fixed;
+            bottom: 20px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-size: 10px;
+            z-index: 26;
+            cursor: pointer;
+            border: 1px solid #00ff00;
+        }
+
+        .marker-highlight {
+            position: absolute;
+            border: 3px solid #00ff00;
+            box-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+            pointer-events: none;
+            z-index: 15;
         }
 
         @media (max-width: 768px) {
@@ -263,7 +289,15 @@
     </div>
 
     <div id="error-message"></div>
+    <button id="toggle-debug" onclick="toggleDebugLog()">🐛 Debug</button>
     <div id="debug-log"></div>
+
+    <script>
+        function toggleDebugLog() {
+            const log = document.getElementById('debug-log');
+            log.classList.toggle('visible');
+        }
+    </script>
 
     <script>
         // Debug logger che mostra i log sullo schermo
@@ -511,13 +545,30 @@
                             // Stima dimensione basata sui keypoint
                             const avgScale = this.videoElement.videoWidth / template.width;
 
+                            // Calcola bounding box più preciso dai keypoints
+                            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                            matches.forEach(m => {
+                                const kp = keypoints.get(m.queryIdx);
+                                minX = Math.min(minX, kp.pt.x);
+                                minY = Math.min(minY, kp.pt.y);
+                                maxX = Math.max(maxX, kp.pt.x);
+                                maxY = Math.max(maxY, kp.pt.y);
+                            });
+
+                            // Espandi leggermente il bbox
+                            const padding = 20;
+                            const bboxX = Math.max(0, minX - padding);
+                            const bboxY = Math.max(0, minY - padding);
+                            const bboxWidth = (maxX - minX) + padding * 2;
+                            const bboxHeight = (maxY - minY) + padding * 2;
+
                             this.detectedMarkers.set(charId, {
                                 character: template.character,
                                 screenX: centerX,
                                 screenY: centerY,
                                 matches: matches.length,
                                 confidence: Math.min(1.0, matches.length / 50),
-                                bbox: [centerX - 50, centerY - 50, 100, 100] // Stima approssimativa
+                                bbox: [bboxX, bboxY, bboxWidth, bboxHeight]
                             });
 
                             console.log(`Marker detected for ${template.character.name}: ${matches.length} matches`);
@@ -544,12 +595,42 @@
                     keypoints.delete();
                     descriptors.delete();
 
+                    // Disegna i rettangoli dei marker rilevati
+                    this.drawMarkerHighlights();
+
                     // Aggiorna overlay se ci sono marker rilevati
                     if (this.detectedMarkers.size > 0) {
                         this.updateAROverlay();
                     }
                 } catch (error) {
                     console.log('Detection error:', error);
+                }
+            }
+
+            drawMarkerHighlights() {
+                // Rimuovi i vecchi highlight
+                const oldHighlights = document.querySelectorAll('.marker-highlight');
+                oldHighlights.forEach(h => h.remove());
+
+                // Disegna i nuovi highlight
+                for (const [charId, marker] of this.detectedMarkers) {
+                    const scaleX = window.innerWidth / this.videoElement.videoWidth;
+                    const scaleY = window.innerHeight / this.videoElement.videoHeight;
+
+                    const highlight = document.createElement('div');
+                    highlight.className = 'marker-highlight';
+                    highlight.style.left = (marker.bbox[0] * scaleX) + 'px';
+                    highlight.style.top = (marker.bbox[1] * scaleY) + 'px';
+                    highlight.style.width = (marker.bbox[2] * scaleX) + 'px';
+                    highlight.style.height = (marker.bbox[3] * scaleY) + 'px';
+
+                    // Aggiungi label con numero di match
+                    const label = document.createElement('div');
+                    label.style.cssText = 'position: absolute; top: -20px; left: 0; background: rgba(0,255,0,0.8); color: black; padding: 2px 8px; font-size: 10px; border-radius: 3px; font-weight: bold;';
+                    label.textContent = `${marker.matches} matches`;
+                    highlight.appendChild(label);
+
+                    document.getElementById('ar-overlay').appendChild(highlight);
                 }
             }
 
