@@ -331,6 +331,12 @@
     </script>
 
     <script>
+        // EMBEDDED CHARACTER DATA (pre-loaded dal server - zero latency)
+        window.EMBEDDED_CHARACTERS = {{ characters_json|safe }};
+        console.log('✅ Embedded character data loaded:', window.EMBEDDED_CHARACTERS.length, 'characters');
+    </script>
+
+    <script>
         // Global flag per OpenCV
         let openCvReady = false;
         function onOpenCvReady() {
@@ -1157,12 +1163,43 @@
 
             async loadCharacterData() {
                 try {
+                    // OTTIMIZZAZIONE: Usa dati embedded (zero latency)
+                    if (window.EMBEDDED_CHARACTERS && window.EMBEDDED_CHARACTERS.length > 0) {
+                        this.characters = window.EMBEDDED_CHARACTERS;
+                        this.charactersLastUpdate = Date.now();
+                        console.log('✅ Characters loaded from embedded data (0ms latency):', this.characters.length, 'characters');
+                        return;
+                    }
+
+                    // Fallback: carica da API se embedding non disponibile
+                    console.log('⚠️ Embedded data not found, falling back to API...');
                     const response = await fetch('/api/characters/');
                     const data = await response.json();
                     this.characters = data.characters;
-                    console.log('Characters loaded:', JSON.stringify(this.characters, null, 2));
+                    this.charactersLastUpdate = Date.now();
+                    console.log('Characters loaded from API:', this.characters.length, 'characters');
                 } catch (error) {
                     this.showError('Errore caricamento personaggi: ' + error.message);
+                }
+            }
+
+            async refreshCharacterData() {
+                // Refresh manuale dei dati (chiamato quando necessario)
+                try {
+                    console.log('🔄 Refreshing character data from server...');
+                    const response = await fetch('/api/characters/');
+                    const data = await response.json();
+                    this.characters = data.characters;
+                    this.charactersLastUpdate = Date.now();
+
+                    // Ricarica anche i marker images se cambiate
+                    if (openCvReady) {
+                        await this.loadMarkerImages();
+                    }
+
+                    console.log('✅ Character data refreshed:', this.characters.length, 'characters');
+                } catch (error) {
+                    console.error('Error refreshing character data:', error);
                 }
             }
 
