@@ -1185,26 +1185,78 @@
             }
 
             createWorldAnchor(charId, character, screenX, screenY) {
-                // Calcola posizione GPS stimata del marker basata su:
-                // 1. Posizione corrente GPS
+                // Calcola posizione GPS stimata della pianta/marker basata su:
+                // 1. Posizione corrente GPS dell'utente
                 // 2. Heading compass
-                // 3. Posizione marker sullo schermo (per stimare distanza/direzione)
+                // 3. Distanza stimata (assumi 2-3 metri davanti alla camera)
 
-                // Per semplicità, usiamo la posizione GPS corrente come anchor
-                // In una versione più avanzata, potremmo stimare offset basato su screenX/Y
+                const videoWidth = this.videoElement.videoWidth;
+                const videoHeight = this.videoElement.videoHeight;
+
+                // Calcola offset angolare dal centro dello schermo
+                const centerX = videoWidth / 2;
+                const centerY = videoHeight / 2;
+                const offsetX = screenX - centerX;
+                const offsetY = screenY - centerY;
+
+                // FOV orizzontale tipico smartphone (~60-70 gradi)
+                const horizontalFOV = 65; // gradi
+                const angleOffset = (offsetX / videoWidth) * horizontalFOV;
+
+                // Bearing verso il marker = compass heading + offset angolare
+                const markerBearing = (this.currentHeading + angleOffset + 360) % 360;
+
+                // Stima distanza (assumiamo 2 metri di default per oggetti indoor)
+                const estimatedDistance = 2.0; // metri
+
+                // Calcola coordinate GPS del marker
+                const markerCoords = this.calculateDestination(
+                    this.currentPosition.coords.latitude,
+                    this.currentPosition.coords.longitude,
+                    markerBearing,
+                    estimatedDistance
+                );
+
                 const anchor = {
-                    lat: this.currentPosition.coords.latitude,
-                    lng: this.currentPosition.coords.longitude,
+                    lat: markerCoords.lat,
+                    lng: markerCoords.lng,
                     altitude: this.currentPosition.coords.altitude || 0,
-                    heading: this.currentHeading,
+                    heading: markerBearing,
                     timestamp: Date.now(),
-                    screenX: screenX,  // Salva posizione schermo per riferimento
+                    screenX: screenX,
                     screenY: screenY,
-                    isAnchored: true
+                    isAnchored: true,
+                    distance: estimatedDistance
                 };
 
                 this.worldAnchors.set(charId, anchor);
-                console.log(`⚓ World anchor created for ${character.name} at GPS ${anchor.lat.toFixed(6)}, ${anchor.lng.toFixed(6)}`);
+                console.log(`⚓ World anchor created for ${character.name} at GPS ${anchor.lat.toFixed(6)}, ${anchor.lng.toFixed(6)} (bearing: ${markerBearing.toFixed(0)}°, ~${estimatedDistance}m)`);
+            }
+
+            calculateDestination(lat, lon, bearing, distance) {
+                // Calcola coordinate GPS dato punto partenza, bearing e distanza
+                // Formula: Destination point given distance and bearing from start point
+                const R = 6371e3; // Raggio Terra in metri
+                const δ = distance / R; // Distanza angolare in radianti
+                const θ = bearing * Math.PI / 180; // Bearing in radianti
+
+                const φ1 = lat * Math.PI / 180;
+                const λ1 = lon * Math.PI / 180;
+
+                const φ2 = Math.asin(
+                    Math.sin(φ1) * Math.cos(δ) +
+                    Math.cos(φ1) * Math.sin(δ) * Math.cos(θ)
+                );
+
+                const λ2 = λ1 + Math.atan2(
+                    Math.sin(θ) * Math.sin(δ) * Math.cos(φ1),
+                    Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2)
+                );
+
+                return {
+                    lat: φ2 * 180 / Math.PI,
+                    lng: λ2 * 180 / Math.PI
+                };
             }
 
             async loadCharacterData() {
