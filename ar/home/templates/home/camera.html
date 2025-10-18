@@ -529,8 +529,8 @@
                             bestMatch = { charId, template, matches };
                         }
 
-                        // Soglia match: bilanciamento tra precisione e affidabilità
-                        const minMatches = 50; // Richiede almeno 50 good matches
+                        // Soglia match: richiede almeno 100 match per evitare falsi positivi
+                        const minMatches = 100;
                         if (matches.length >= minMatches) {
                             // Calcola posizione media dei match
                             let centerX = 0, centerY = 0;
@@ -582,7 +582,7 @@
                         markerStatus.textContent = `🟢 ${detected.matches} matches`;
                         markerStatus.style.color = '#00ff00';
                     } else if (bestMatch && maxMatches > 0) {
-                        markerStatus.textContent = `🟡 ${maxMatches}/50 matches`;
+                        markerStatus.textContent = `🟡 ${maxMatches}/100 matches`;
                         markerStatus.style.color = '#ff9900';
                     } else {
                         markerStatus.textContent = `🔴 No matches`;
