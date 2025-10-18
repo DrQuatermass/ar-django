@@ -579,7 +579,7 @@
                                 showCharacter: matches.length >= minMatches
                             });
 
-                            console.log(`Marker detected for ${template.character.name}: ${matches.length} matches`);
+                            console.log(`Marker detected for ${template.character.name}: ${matches.length} matches, ${matchedKeypoints.length} keypoints saved`);
                         }
                     }
 
@@ -624,6 +624,8 @@
                 const oldKeypoints = document.querySelectorAll('.keypoint-marker');
                 oldKeypoints.forEach(k => k.remove());
 
+                console.log(`Drawing highlights for ${this.detectedMarkers.size} markers`);
+
                 // Disegna i nuovi highlight
                 for (const [charId, marker] of this.detectedMarkers) {
                     const scaleX = window.innerWidth / this.videoElement.videoWidth;
@@ -645,7 +647,9 @@
                     document.getElementById('ar-overlay').appendChild(highlight);
 
                     // Disegna i keypoints matched (salviamo i punti durante il matching)
-                    if (marker.matchedKeypoints) {
+                    console.log(`Marker has ${marker.matchedKeypoints ? marker.matchedKeypoints.length : 0} keypoints`);
+                    if (marker.matchedKeypoints && marker.matchedKeypoints.length > 0) {
+                        console.log(`Drawing ${marker.matchedKeypoints.length} keypoint dots`);
                         marker.matchedKeypoints.forEach(kp => {
                             const dot = document.createElement('div');
                             dot.className = 'keypoint-marker';
