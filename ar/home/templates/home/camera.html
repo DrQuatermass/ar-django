@@ -654,18 +654,18 @@
                             const dot = document.createElement('div');
                             dot.className = 'keypoint-marker';
                             dot.style.cssText = `
-                                position: absolute;
-                                left: ${(kp.x * scaleX) - 2}px;
-                                top: ${(kp.y * scaleY) - 2}px;
-                                width: 4px;
-                                height: 4px;
+                                position: fixed;
+                                left: ${(kp.x * scaleX) - 3}px;
+                                top: ${(kp.y * scaleY) - 3}px;
+                                width: 6px;
+                                height: 6px;
                                 background: #00ff00;
                                 border-radius: 50%;
-                                box-shadow: 0 0 3px rgba(0,255,0,0.8);
+                                box-shadow: 0 0 5px rgba(0,255,0,1);
                                 pointer-events: none;
-                                z-index: 16;
+                                z-index: 9999;
                             `;
-                            document.getElementById('ar-overlay').appendChild(dot);
+                            document.body.appendChild(dot);
                         });
                     }
                 }
