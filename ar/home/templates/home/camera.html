@@ -379,6 +379,9 @@
             async loadMarkerImages() {
                 console.log(`Loading marker images for ${this.characters.length} characters...`);
 
+                // Aspetta che OpenCV sia completamente pronto
+                await new Promise(resolve => setTimeout(resolve, 500));
+
                 // Carica le immagini marker per i personaggi che le hanno
                 this.markerTemplates = new Map();
                 let totalFeatures = 0;
@@ -388,6 +391,12 @@
                     if (char.use_marker && char.marker_image) {
                         try {
                             const img = await this.loadImage(char.marker_image);
+
+                            // Doppio controllo che cv sia pronto
+                            if (!cv || !cv.imread) {
+                                throw new Error('OpenCV imread not ready');
+                            }
+
                             const mat = cv.imread(img);
 
                             // Estrai features dell'immagine marker
