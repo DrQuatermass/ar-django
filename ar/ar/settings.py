@@ -25,13 +25,12 @@ SECRET_KEY = 'django-insecure-fg^!+**g^1jmmk+7kd=uz7nox%(kr1j*zpfdy+n$trlm&(!p%%
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '192.168.0.230', '94.177.171.193', 'ombradelportico.it']
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '192.168.0.230', '94.177.170.48']
 
 # CSRF and CORS settings for production
 CSRF_TRUSTED_ORIGINS = [
-    'https://94.177.171.193:8080',
-    'https://ombradelportico.it:8080',
-    'https://ombradelportico.it',
+    'https://94.177.170.48',
+    'http://94.177.170.48',
 ]
 
 
