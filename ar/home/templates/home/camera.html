@@ -477,12 +477,6 @@
 
             createARCharacter(character, distance) {
                 const overlay = document.getElementById('ar-overlay');
-                const characterDiv = document.createElement('div');
-                characterDiv.className = 'ar-character';
-
-                if (distance <= 5) {
-                    characterDiv.classList.add('active');
-                }
 
                 const bearing = this.calculateBearing(
                     this.currentPosition.coords.latitude,
@@ -493,14 +487,31 @@
 
                 const screenPosition = this.worldToScreen(bearing, distance);
 
+                // Se il personaggio è fuori dal campo visivo, non mostrarlo
+                if (!screenPosition || !screenPosition.visible) {
+                    return;
+                }
+
+                const characterDiv = document.createElement('div');
+                characterDiv.className = 'ar-character';
+
+                // Applica la scala in base alla distanza
+                const scale = screenPosition.scale;
+                const baseSize = 80;
+                const imgSize = baseSize * scale;
+
+                // Posiziona il personaggio con trasformazione per centrarlo
                 characterDiv.style.left = screenPosition.x + 'px';
                 characterDiv.style.top = screenPosition.y + 'px';
+                characterDiv.style.transform = 'translate(-50%, -50%)';
 
-                // Mostra solo l'immagine del personaggio
-                console.log(`Character ${character.name}: image=${character.character_image}`);
+                // Mostra l'immagine del personaggio con dimensione scalata
+                console.log(`Character ${character.name}: distance=${Math.round(distance)}m, scale=${scale.toFixed(2)}`);
                 if (character.character_image) {
                     characterDiv.innerHTML = `
-                        <img src="${character.character_image}" alt="${character.name}">
+                        <img src="${character.character_image}"
+                             alt="${character.name}"
+                             style="width: ${imgSize}px; height: ${imgSize}px;">
                         <div class="ar-character-info">
                             <div><strong>${character.name}</strong></div>
                             <div>${Math.round(distance)}m</div>
@@ -545,16 +556,42 @@
                 const screenWidth = window.innerWidth;
                 const screenHeight = window.innerHeight;
 
-                // Converti bearing relativo alla direzione della fotocamera
-                const relativeBearing = (bearing - this.currentHeading + 360) % 360;
+                // Campo visivo della fotocamera (tipicamente 60-80 gradi per smartphone)
+                const FOV = 70;
 
-                // Mappa il bearing su coordinate schermo (FOV di 90 gradi)
-                const x = screenWidth * (relativeBearing / 90) % screenWidth;
+                // Calcola il bearing relativo alla direzione della fotocamera
+                let relativeBearing = (bearing - this.currentHeading + 360) % 360;
 
-                // La distanza influenza la posizione verticale
-                const y = screenHeight * 0.3 + (distance / 100) * screenHeight * 0.4;
+                // Normalizza il bearing tra -180 e 180 gradi
+                if (relativeBearing > 180) {
+                    relativeBearing -= 360;
+                }
 
-                return { x: Math.max(50, Math.min(x, screenWidth - 50)), y: Math.max(100, Math.min(y, screenHeight - 100)) };
+                // Controlla se il personaggio è nel campo visivo
+                if (Math.abs(relativeBearing) > FOV / 2) {
+                    // Fuori dal campo visivo - non mostrare
+                    return null;
+                }
+
+                // Mappa il bearing su coordinate schermo
+                // 0 gradi (davanti) = centro schermo
+                // -FOV/2 = sinistra, +FOV/2 = destra
+                const x = screenWidth / 2 + (relativeBearing / FOV) * screenWidth;
+
+                // La posizione verticale dipende dalla distanza
+                // Più vicino = più in basso (effetto prospettico)
+                const verticalOffset = Math.max(0, Math.min(1, distance / 100));
+                const y = screenHeight * (0.4 + verticalOffset * 0.2);
+
+                // Calcola la scala in base alla distanza (più vicino = più grande)
+                const scale = Math.max(0.3, Math.min(2, 50 / distance));
+
+                return {
+                    x: x,
+                    y: y,
+                    scale: scale,
+                    visible: true
+                };
             }
 
             showError(message) {
