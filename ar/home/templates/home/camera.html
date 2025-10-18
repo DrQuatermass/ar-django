@@ -252,8 +252,22 @@
         let openCvReady = false;
         function onOpenCvReady() {
             openCvReady = true;
-            console.log('OpenCV.js is ready');
+            console.log('✅ OpenCV.js loaded successfully');
+            const markerStatus = document.getElementById('marker-status');
+            if (markerStatus) {
+                markerStatus.textContent = 'Loading...';
+                markerStatus.style.color = '#00ff00';
+            }
         }
+
+        // Inizializza status
+        window.addEventListener('DOMContentLoaded', () => {
+            const markerStatus = document.getElementById('marker-status');
+            if (markerStatus) {
+                markerStatus.textContent = 'Loading OpenCV...';
+                markerStatus.style.color = '#ffff00';
+            }
+        });
 
         class ARCamera {
             constructor() {
@@ -303,15 +317,18 @@
                     }
                 }, 100);
 
-                // Timeout dopo 10 secondi
+                // Timeout dopo 30 secondi (OpenCV è pesante su mobile)
                 setTimeout(() => {
                     clearInterval(waitForOpenCV);
                     if (!openCvReady) {
-                        console.error('❌ OpenCV.js failed to load - marker detection disabled');
-                        document.getElementById('marker-status').textContent = 'OpenCV Error';
-                        document.getElementById('marker-status').style.color = '#ff0000';
+                        console.error('❌ OpenCV.js failed to load after 30s - marker detection disabled');
+                        console.error('Possible causes: slow connection, mobile browser compatibility, CORS issue');
+                        const markerStatus = document.getElementById('marker-status');
+                        markerStatus.textContent = 'OpenCV timeout (GPS only)';
+                        markerStatus.style.color = '#ff9900';
+                        // Continua con solo GPS
                     }
-                }, 10000);
+                }, 30000);
             }
 
             async loadMarkerImages() {
