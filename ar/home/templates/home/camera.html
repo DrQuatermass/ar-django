@@ -49,13 +49,17 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            transition: all 0.3s ease;
+            /* Transizioni smooth per posizione, dimensione e opacità */
+            transition: left 0.2s ease-out, top 0.2s ease-out, transform 0.2s ease-out, opacity 0.3s ease-in-out, width 0.3s ease, height 0.3s ease;
+            will-change: transform, opacity;
         }
 
         .ar-character img {
             width: 80px;
             height: 80px;
             object-fit: cover;
+            /* Transizione smooth per dimensione immagine */
+            transition: width 0.3s ease, height 0.3s ease;
         }
 
         .ar-character.active {
@@ -360,6 +364,13 @@
                 this.detectedMarkers = new Map(); // marker_id -> position
                 this.videoElement = null;
 
+                // Stabilizzazione e smoothing
+                this.characterStates = new Map(); // charId -> { visible, lastSeen, position, positionHistory }
+                this.PERSISTENCE_FRAMES = 5; // Mantieni visibile per N frames dopo perdita marker
+                this.POSITION_HISTORY_SIZE = 3; // Media mobile su N posizioni
+                this.HYSTERESIS_SHOW = 100; // Soglia per mostrare
+                this.HYSTERESIS_HIDE = 50; // Soglia per nascondere
+
                 this.initCamera();
                 this.initGPS();
                 this.loadCharacterData();
@@ -614,25 +625,57 @@
                             const bboxWidth = (maxX - minX) + padding * 2;
                             const bboxHeight = (maxY - minY) + padding * 2;
 
-                            // Soglia: richiede almeno 100 match per mostrare il character
-                            const minDetectionMatches = 100;
+                            // ISTERESI: Soglie diverse per mostrare/nascondere (evita flickering)
+                            let showCharacter = false;
+                            const currentState = this.characterStates.get(charId);
+
+                            if (currentState && currentState.visible) {
+                                // Già visibile: nasconde solo se scende sotto soglia bassa
+                                showCharacter = matches.length >= this.HYSTERESIS_HIDE;
+                            } else {
+                                // Non visibile: mostra solo se supera soglia alta
+                                showCharacter = matches.length >= this.HYSTERESIS_SHOW;
+                            }
+
+                            // Aggiorna stato character
+                            if (!this.characterStates.has(charId)) {
+                                this.characterStates.set(charId, {
+                                    visible: false,
+                                    lastSeen: 0,
+                                    positionHistory: []
+                                });
+                            }
+
+                            const state = this.characterStates.get(charId);
+                            state.lastSeen = Date.now();
+                            state.visible = showCharacter;
+
+                            // Aggiungi posizione alla history per smoothing
+                            state.positionHistory.push({ x: centerX, y: centerY });
+                            if (state.positionHistory.length > this.POSITION_HISTORY_SIZE) {
+                                state.positionHistory.shift();
+                            }
+
+                            // Calcola posizione smoothed (media mobile)
+                            const smoothX = state.positionHistory.reduce((sum, p) => sum + p.x, 0) / state.positionHistory.length;
+                            const smoothY = state.positionHistory.reduce((sum, p) => sum + p.y, 0) / state.positionHistory.length;
 
                             this.detectedMarkers.set(charId, {
                                 character: template.character,
-                                screenX: centerX,
-                                screenY: centerY,
+                                screenX: smoothX,
+                                screenY: smoothY,
                                 matches: matches.length,
                                 confidence: Math.min(1.0, matches.length / 50),
                                 bbox: [bboxX, bboxY, bboxWidth, bboxHeight],
                                 matchedKeypoints: matchedKeypoints,
-                                showCharacter: matches.length >= minDetectionMatches,
+                                showCharacter: showCharacter,
                                 type: 'detection'
                             });
 
-                            console.log(`Detection marker for ${template.character.name}: ${matches.length} matches`);
+                            console.log(`Detection marker for ${template.character.name}: ${matches.length} matches, visible=${showCharacter}`);
 
-                            // POSITIONING MARKER: Cerca solo se detection matches > soglia
-                            if (matches.length >= minDetectionMatches && this.positioningMarkerTemplates.has(charId)) {
+                            // POSITIONING MARKER: Cerca solo se detection matches > soglia SHOW
+                            if (matches.length >= this.HYSTERESIS_SHOW && this.positioningMarkerTemplates.has(charId)) {
                                 console.log(`Detection passed threshold, checking positioning marker for ${template.character.name}`);
                                 const posTemplate = this.positioningMarkerTemplates.get(charId);
                                 const posMatches = this.matchFeatures(descriptors, posTemplate.descriptors);
@@ -681,11 +724,48 @@
                         }
                     }
 
+                    // PERSISTENZA TEMPORALE: Mantieni visibili character recentemente visti
+                    const now = Date.now();
+                    const PERSISTENCE_MS = this.PERSISTENCE_FRAMES * 500; // 500ms per frame
+
+                    for (const [charId, state] of this.characterStates) {
+                        const timeSinceLastSeen = now - state.lastSeen;
+
+                        // Se il character era visibile e non è passato troppo tempo, mantienilo visibile
+                        if (state.visible && timeSinceLastSeen < PERSISTENCE_MS) {
+                            if (!this.detectedMarkers.has(charId)) {
+                                // Marker non rilevato questo frame, ma mantieni l'ultima posizione
+                                const character = this.characters.find(c => c.id === charId);
+                                if (character && state.positionHistory.length > 0) {
+                                    const lastPos = state.positionHistory[state.positionHistory.length - 1];
+                                    console.log(`Maintaining ${character.name} via persistence (${Math.round(timeSinceLastSeen)}ms ago)`);
+
+                                    this.detectedMarkers.set(charId, {
+                                        character: character,
+                                        screenX: lastPos.x,
+                                        screenY: lastPos.y,
+                                        matches: 0,
+                                        confidence: 0.5,
+                                        bbox: [lastPos.x - 50, lastPos.y - 50, 100, 100],
+                                        matchedKeypoints: [],
+                                        showCharacter: true,
+                                        type: 'persistence',
+                                        isPersisted: true
+                                    });
+                                }
+                            }
+                        } else if (timeSinceLastSeen >= PERSISTENCE_MS) {
+                            // Troppo tempo passato, marca come non visibile
+                            state.visible = false;
+                        }
+                    }
+
                     // Aggiorna UI con status detection
                     const markerStatus = document.getElementById('marker-status');
                     if (this.detectedMarkers.size > 0) {
                         const detected = Array.from(this.detectedMarkers.values())[0];
-                        markerStatus.textContent = `🟢 ${detected.matches} matches`;
+                        const persistTag = detected.isPersisted ? ' (P)' : '';
+                        markerStatus.textContent = `🟢 ${detected.matches} matches${persistTag}`;
                         markerStatus.style.color = '#00ff00';
                     } else if (bestMatch && maxMatches > 0) {
                         markerStatus.textContent = `🟡 ${maxMatches}/100 matches`;
@@ -1040,7 +1120,10 @@
                 if (!this.currentPosition || this.characters.length === 0) return;
 
                 const overlay = document.getElementById('ar-overlay');
-                overlay.innerHTML = '';
+
+                // NON cancellare tutto ogni frame - aggiorna solo le posizioni esistenti
+                // Questo permette alle transizioni CSS di funzionare
+                const existingCharacters = new Set();
 
                 this.characters.forEach(character => {
                     const distance = this.calculateDistance(
@@ -1051,13 +1134,37 @@
                     );
 
                     if (distance <= character.activation_distance) {
-                        this.createARCharacter(character, distance);
+                        this.createOrUpdateARCharacter(character, distance);
+                        existingCharacters.add(character.id);
+                    }
+                });
+
+                // Rimuovi character che non sono più nell'area con fade out
+                const allCharDivs = overlay.querySelectorAll('.ar-character');
+                allCharDivs.forEach(div => {
+                    const charId = parseInt(div.dataset.characterId);
+                    if (!existingCharacters.has(charId)) {
+                        // Fade out prima di rimuovere
+                        div.style.opacity = '0';
+                        setTimeout(() => div.remove(), 300);
                     }
                 });
             }
 
-            createARCharacter(character, distance) {
+            createOrUpdateARCharacter(character, distance) {
                 const overlay = document.getElementById('ar-overlay');
+
+                // Cerca se il character esiste già
+                let characterDiv = overlay.querySelector(`[data-character-id="${character.id}"]`);
+                const isNew = !characterDiv;
+
+                if (isNew) {
+                    characterDiv = document.createElement('div');
+                    characterDiv.className = 'ar-character';
+                    characterDiv.dataset.characterId = character.id;
+                    characterDiv.style.opacity = '0'; // Inizia invisibile per fade in
+                }
+
                 let screenPosition;
                 let scale;
 
@@ -1124,33 +1231,52 @@
                     scale = screenPosition.scale;
                 }
 
-                const characterDiv = document.createElement('div');
-                characterDiv.className = 'ar-character';
-
                 // Applica la scala
                 const baseSize = 80;
                 const imgSize = baseSize * scale;
 
-                // Posiziona il personaggio con trasformazione per centrarlo
+                // AGGIORNA posizione (le transizioni CSS renderanno il movimento smooth)
                 characterDiv.style.left = screenPosition.x + 'px';
                 characterDiv.style.top = screenPosition.y + 'px';
                 characterDiv.style.transform = 'translate(-50%, -50%)';
 
-                // Mostra l'immagine del personaggio con dimensione scalata
-                console.log(`Character ${character.name}: distance=${Math.round(distance)}m, scale=${scale.toFixed(2)}, mode=${character.display_mode}`);
-                if (character.character_image) {
-                    characterDiv.innerHTML = `
-                        <img src="${character.character_image}"
-                             alt="${character.name}"
-                             style="width: ${imgSize}px; height: ${imgSize}px;">
-                        <div class="ar-character-info">
-                            <div><strong>${character.name}</strong></div>
-                            <div>${Math.round(distance)}m</div>
-                        </div>
-                    `;
-                    overlay.appendChild(characterDiv);
+                // Aggiorna contenuto solo se necessario (per evitare flickering)
+                if (isNew || !characterDiv.querySelector('img')) {
+                    console.log(`Character ${character.name}: distance=${Math.round(distance)}m, scale=${scale.toFixed(2)}, mode=${character.display_mode}`);
+                    if (character.character_image) {
+                        characterDiv.innerHTML = `
+                            <img src="${character.character_image}"
+                                 alt="${character.name}"
+                                 style="width: ${imgSize}px; height: ${imgSize}px;">
+                            <div class="ar-character-info">
+                                <div><strong>${character.name}</strong></div>
+                                <div>${Math.round(distance)}m</div>
+                            </div>
+                        `;
+                    } else {
+                        console.log(`Character ${character.name} has no image!`);
+                        return;
+                    }
                 } else {
-                    console.log(`Character ${character.name} has no image!`);
+                    // Aggiorna solo dimensioni immagine e distanza
+                    const img = characterDiv.querySelector('img');
+                    const distanceDiv = characterDiv.querySelector('.ar-character-info div:last-child');
+                    if (img) {
+                        img.style.width = imgSize + 'px';
+                        img.style.height = imgSize + 'px';
+                    }
+                    if (distanceDiv) {
+                        distanceDiv.textContent = Math.round(distance) + 'm';
+                    }
+                }
+
+                // Aggiungi all'overlay se nuovo
+                if (isNew) {
+                    overlay.appendChild(characterDiv);
+                    // Fade in dopo un frame
+                    setTimeout(() => {
+                        characterDiv.style.opacity = '1';
+                    }, 10);
                 }
             }
 
