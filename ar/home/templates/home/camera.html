@@ -388,20 +388,7 @@
                     if (char.use_marker && char.marker_image) {
                         try {
                             const img = await this.loadImage(char.marker_image);
-
-                            // Crea canvas temporaneo per convertire l'immagine
-                            const canvas = document.createElement('canvas');
-                            canvas.width = img.width;
-                            canvas.height = img.height;
-                            const ctx = canvas.getContext('2d');
-                            ctx.drawImage(img, 0, 0);
-
-                            // Crea Mat direttamente dai pixel del canvas
-                            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-                            // Crea Mat RGBA
-                            const mat = new cv.Mat(canvas.height, canvas.width, cv.CV_8UC4);
-                            mat.data.set(imageData.data);
+                            const mat = cv.imread(img);
 
                             // Estrai features dell'immagine marker
                             const gray = new cv.Mat();
