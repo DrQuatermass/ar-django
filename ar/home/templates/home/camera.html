@@ -396,9 +396,12 @@
                             const ctx = canvas.getContext('2d');
                             ctx.drawImage(img, 0, 0);
 
-                            // Ottieni i dati dell'immagine e crea Mat manualmente
+                            // Crea Mat direttamente dai pixel del canvas
                             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                            const mat = cv.matFromImageData(imageData);
+
+                            // Crea Mat RGBA
+                            const mat = new cv.Mat(canvas.height, canvas.width, cv.CV_8UC4);
+                            mat.data.set(imageData.data);
 
                             // Estrai features dell'immagine marker
                             const gray = new cv.Mat();
