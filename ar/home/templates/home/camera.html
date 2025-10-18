@@ -526,12 +526,11 @@
 
                         if (matches.length > maxMatches) {
                             maxMatches = matches.length;
-                            bestMatch = { charId, template, matches };
+                            bestMatch = { charId, template, matches, keypoints };
                         }
 
-                        // Soglia match: richiede almeno 100 match per evitare falsi positivi
-                        const minMatches = 100;
-                        if (matches.length >= minMatches) {
+                        // Visualizza sempre i keypoints matched (anche sotto i 100)
+                        if (matches.length > 0) {
                             // Calcola posizione media dei match
                             let centerX = 0, centerY = 0;
                             matches.forEach(m => {
@@ -541,9 +540,6 @@
                             });
                             centerX /= matches.length;
                             centerY /= matches.length;
-
-                            // Stima dimensione basata sui keypoint
-                            const avgScale = this.videoElement.videoWidth / template.width;
 
                             // Calcola bounding box più preciso dai keypoints
                             let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -569,6 +565,9 @@
                                 matchedKeypoints.push({ x: kp.pt.x, y: kp.pt.y });
                             });
 
+                            // Soglia match: richiede almeno 100 match per mostrare il character
+                            const minMatches = 100;
+
                             this.detectedMarkers.set(charId, {
                                 character: template.character,
                                 screenX: centerX,
@@ -576,7 +575,8 @@
                                 matches: matches.length,
                                 confidence: Math.min(1.0, matches.length / 50),
                                 bbox: [bboxX, bboxY, bboxWidth, bboxHeight],
-                                matchedKeypoints: matchedKeypoints
+                                matchedKeypoints: matchedKeypoints,
+                                showCharacter: matches.length >= minMatches
                             });
 
                             console.log(`Marker detected for ${template.character.name}: ${matches.length} matches`);
@@ -913,6 +913,11 @@
                 // MODALITÀ MARKER: Se il personaggio usa marker e il marker è rilevato
                 if (character.use_marker && this.detectedMarkers.has(character.id)) {
                     const marker = this.detectedMarkers.get(character.id);
+
+                    // Mostra il character solo se ci sono abbastanza matches
+                    if (!marker.showCharacter) {
+                        return;
+                    }
 
                     // Calcola posizione relativa al marker rilevato
                     const markerX = marker.screenX;
