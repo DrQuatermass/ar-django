@@ -206,6 +206,11 @@
         </div>
 
         <div class="info-panel">
+            <div class="info-title">Altitude</div>
+            <div class="info-value" id="gps-altitude">-</div>
+        </div>
+
+        <div class="info-panel">
             <div class="info-title">Nearest</div>
             <div class="info-value" id="nearest-distance">-</div>
         </div>
@@ -410,9 +415,16 @@
                     const lat = this.currentPosition.coords.latitude.toFixed(6);
                     const lng = this.currentPosition.coords.longitude.toFixed(6);
                     const accuracy = Math.round(this.currentPosition.coords.accuracy);
+                    const altitude = this.currentPosition.coords.altitude;
 
                     document.getElementById('gps-coords').textContent = `${lat}, ${lng}`;
                     document.getElementById('gps-accuracy').textContent = `±${accuracy}m`;
+
+                    if (altitude !== null) {
+                        document.getElementById('gps-altitude').textContent = `${Math.round(altitude)}m`;
+                    } else {
+                        document.getElementById('gps-altitude').textContent = 'N/A';
+                    }
                 }
             }
 
