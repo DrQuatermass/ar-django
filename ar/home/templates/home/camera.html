@@ -1402,6 +1402,10 @@
                         }
                     }
 
+                    // DEBUG: Verifica stato anchor
+                    const hasAnchor = this.worldAnchors.has(character.id);
+                    console.log(`🔍 ${character.name}: posMarker=${!!positioningMarker}, hasAnchor=${hasAnchor}, anchors=${this.worldAnchors.size}`);
+
                     // PRIORITÀ: positioning marker > anchor > detection marker
                     if (positioningMarker) {
                         // Usa positioning marker (real-time tracking)
