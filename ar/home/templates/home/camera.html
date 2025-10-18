@@ -562,13 +562,21 @@
                             const bboxWidth = (maxX - minX) + padding * 2;
                             const bboxHeight = (maxY - minY) + padding * 2;
 
+                            // Salva le coordinate dei keypoints matched per visualizzazione
+                            const matchedKeypoints = [];
+                            matches.forEach(m => {
+                                const kp = keypoints.get(m.queryIdx);
+                                matchedKeypoints.push({ x: kp.pt.x, y: kp.pt.y });
+                            });
+
                             this.detectedMarkers.set(charId, {
                                 character: template.character,
                                 screenX: centerX,
                                 screenY: centerY,
                                 matches: matches.length,
                                 confidence: Math.min(1.0, matches.length / 50),
-                                bbox: [bboxX, bboxY, bboxWidth, bboxHeight]
+                                bbox: [bboxX, bboxY, bboxWidth, bboxHeight],
+                                matchedKeypoints: matchedKeypoints
                             });
 
                             console.log(`Marker detected for ${template.character.name}: ${matches.length} matches`);
@@ -612,6 +620,10 @@
                 const oldHighlights = document.querySelectorAll('.marker-highlight');
                 oldHighlights.forEach(h => h.remove());
 
+                // Rimuovi i vecchi keypoint markers
+                const oldKeypoints = document.querySelectorAll('.keypoint-marker');
+                oldKeypoints.forEach(k => k.remove());
+
                 // Disegna i nuovi highlight
                 for (const [charId, marker] of this.detectedMarkers) {
                     const scaleX = window.innerWidth / this.videoElement.videoWidth;
@@ -631,6 +643,27 @@
                     highlight.appendChild(label);
 
                     document.getElementById('ar-overlay').appendChild(highlight);
+
+                    // Disegna i keypoints matched (salviamo i punti durante il matching)
+                    if (marker.matchedKeypoints) {
+                        marker.matchedKeypoints.forEach(kp => {
+                            const dot = document.createElement('div');
+                            dot.className = 'keypoint-marker';
+                            dot.style.cssText = `
+                                position: absolute;
+                                left: ${(kp.x * scaleX) - 2}px;
+                                top: ${(kp.y * scaleY) - 2}px;
+                                width: 4px;
+                                height: 4px;
+                                background: #00ff00;
+                                border-radius: 50%;
+                                box-shadow: 0 0 3px rgba(0,255,0,0.8);
+                                pointer-events: none;
+                                z-index: 16;
+                            `;
+                            document.getElementById('ar-overlay').appendChild(dot);
+                        });
+                    }
                 }
             }
 
