@@ -325,7 +325,8 @@
                             const gray = new cv.Mat();
                             cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY);
 
-                            const orb = new cv.ORB(500);
+                            // Aumenta features per scene ampie (ambienti, panorami)
+                            const orb = new cv.ORB(2000);
                             const keypoints = new cv.KeyPointVector();
                             const descriptors = new cv.Mat();
                             orb.detectAndCompute(gray, new cv.Mat(), keypoints, descriptors);
@@ -396,8 +397,8 @@
                     const gray = new cv.Mat();
                     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
-                    // Estrai features dal frame corrente
-                    const orb = new cv.ORB(500);
+                    // Estrai features dal frame corrente (più features per scene ampie)
+                    const orb = new cv.ORB(2000);
                     const keypoints = new cv.KeyPointVector();
                     const descriptors = new cv.Mat();
                     orb.detectAndCompute(gray, new cv.Mat(), keypoints, descriptors);
@@ -416,7 +417,9 @@
                             bestMatch = { charId, template, matches };
                         }
 
-                        if (matches.length > 20) { // Threshold di match
+                        // Soglia adattiva: per scene ampie bastano meno match in percentuale
+                        const minMatches = Math.max(15, template.featureCount * 0.05); // Min 15 o 5% delle features
+                        if (matches.length > minMatches) {
                             // Calcola posizione media dei match
                             let centerX = 0, centerY = 0;
                             matches.forEach(m => {
@@ -450,7 +453,9 @@
                         markerStatus.textContent = `🟢 ${detected.matches} matches`;
                         markerStatus.style.color = '#00ff00';
                     } else if (bestMatch && maxMatches > 0) {
-                        markerStatus.textContent = `🟡 ${maxMatches} matches (need 20+)`;
+                        const template = bestMatch.template;
+                        const minNeeded = Math.max(15, template.featureCount * 0.05);
+                        markerStatus.textContent = `🟡 ${maxMatches}/${Math.round(minNeeded)} matches`;
                         markerStatus.style.color = '#ff9900';
                     } else {
                         markerStatus.textContent = `🔴 No matches`;
@@ -481,11 +486,11 @@
                 const matches = new cv.DMatchVector();
                 bf.match(desc1, desc2, matches);
 
-                // Filtra i match migliori
+                // Filtra i match migliori (soglia più permissiva per scene ampie)
                 const goodMatches = [];
                 for (let i = 0; i < matches.size(); i++) {
                     const match = matches.get(i);
-                    if (match.distance < 50) { // Threshold di similarità
+                    if (match.distance < 70) { // Threshold più permissivo per variazioni di luce/angolazione
                         goodMatches.push(match);
                     }
                 }
