@@ -1450,29 +1450,30 @@
                         usingAnchor = true;
 
                         console.log(`⚓ Using screen anchor for ${character.name}: headingΔ=${headingDelta.toFixed(0)}°, screen=(${screenPosition.x.toFixed(0)}, ${screenPosition.y.toFixed(0)})`);
-                    } else {
-                        // Nessun positioning marker e nessun anchor → usa detection marker (fallback)
+                    } else if (!this.worldAnchors.has(character.id)) {
+                        // Nessun positioning marker E nessun anchor → usa detection marker come fallback
                         const markerX = detectionMarker.screenX;
                         const markerY = detectionMarker.screenY;
                         const markerWidth = detectionMarker.bbox[2];
 
-                        // Converti coordinate video in coordinate schermo
                         const scaleX = window.innerWidth / this.videoElement.videoWidth;
                         const scaleY = window.innerHeight / this.videoElement.videoHeight;
 
-                        // Applica offset dal marker
-                        const pixelsPerMeter = markerWidth * scaleX / 0.3; // Assumo oggetto di ~30cm
+                        const pixelsPerMeter = markerWidth * scaleX / 0.3;
                         screenPosition = {
                             x: (markerX * scaleX) + (character.marker_offset_x * pixelsPerMeter),
                             y: (markerY * scaleY) + (character.marker_offset_y * pixelsPerMeter),
                             visible: true
                         };
 
-                        // Scala basata sulla dimensione del marker e distanza stimata
                         const estimatedDistance = 1.0 / (markerWidth / this.videoElement.videoWidth);
                         scale = (character.base_size || 1.0) * Math.max(0.5, Math.min(2, 1 / estimatedDistance));
 
-                        console.log(`🔍 Using DETECTION marker fallback for ${character.name} (no positioning marker, no anchor)`);
+                        console.log(`🔍 Using DETECTION marker fallback for ${character.name}`);
+                    } else {
+                        // Anchor esiste ma positioning marker non rilevato E anchor fuori vista
+                        console.log(`⚓ Anchor exists but out of view for ${character.name} - not showing`);
+                        return;
                     }
                 } else if (character.use_marker) {
                     // Marker abilitato ma non rilevato - non mostrare
