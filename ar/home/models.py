@@ -66,7 +66,13 @@ class CharConfiguration(models.Model):
         upload_to='markers/',
         blank=True,
         null=True,
-        help_text="Immagine marker da stampare/mostrare (JPG/PNG)"
+        help_text="Immagine marker per detection (decide SE mostrare il character)"
+    )
+    positioning_marker_image = models.ImageField(
+        upload_to='markers/',
+        blank=True,
+        null=True,
+        help_text="Immagine marker per positioning (decide DOVE posizionare il character - opzionale)"
     )
     marker_offset_x = models.FloatField(
         default=0.0,
