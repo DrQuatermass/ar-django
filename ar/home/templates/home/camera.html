@@ -1604,9 +1604,12 @@
                     relativeBearing -= 360;
                 }
 
+                console.log(`📐 ${character.name}: bearing=${bearing.toFixed(0)}°, heading=${this.currentHeading.toFixed(0)}°, relative=${relativeBearing.toFixed(0)}°, FOV=±${FOV/2}°`);
+
                 // Controlla se il personaggio è nel campo visivo
                 if (Math.abs(relativeBearing) > FOV / 2) {
                     // Fuori dal campo visivo - non mostrare
+                    console.log(`❌ ${character.name} out of FOV: |${relativeBearing.toFixed(0)}°| > ${FOV/2}°`);
                     return null;
                 }
 
