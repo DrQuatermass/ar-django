@@ -1402,8 +1402,29 @@
                         }
                     }
 
-                    // Se non c'è positioning marker ma c'è anchor, usa GPS anchor
-                    if (!positioningMarker && this.worldAnchors.has(character.id)) {
+                    // PRIORITÀ: positioning marker > anchor > detection marker
+                    if (positioningMarker) {
+                        // Usa positioning marker (real-time tracking)
+                        const markerX = positioningMarker.screenX;
+                        const markerY = positioningMarker.screenY;
+                        const markerWidth = positioningMarker.bbox[2];
+
+                        const scaleX = window.innerWidth / this.videoElement.videoWidth;
+                        const scaleY = window.innerHeight / this.videoElement.videoHeight;
+
+                        const pixelsPerMeter = markerWidth * scaleX / 0.3;
+                        screenPosition = {
+                            x: (markerX * scaleX) + (character.marker_offset_x * pixelsPerMeter),
+                            y: (markerY * scaleY) + (character.marker_offset_y * pixelsPerMeter),
+                            visible: true
+                        };
+
+                        const estimatedDistance = 1.0 / (markerWidth / this.videoElement.videoWidth);
+                        scale = (character.base_size || 1.0) * Math.max(0.5, Math.min(2, 1 / estimatedDistance));
+
+                        console.log(`📍 Using POSITIONING marker for ${character.name}`);
+                    } else if (this.worldAnchors.has(character.id)) {
+                        // Nessun positioning marker → usa GPS anchor
                         const anchor = this.worldAnchors.get(character.id);
 
                         // Usa GPS + compass per calcolare posizione ancorata
@@ -1434,11 +1455,10 @@
 
                         console.log(`⚓ Using world anchor for ${character.name}: dist=${anchorDistance.toFixed(1)}m, bearing=${bearing.toFixed(0)}°`);
                     } else {
-                        // Usa positioning marker o detection marker
-                        const markerForPosition = positioningMarker || detectionMarker;
-                        const markerX = markerForPosition.screenX;
-                        const markerY = markerForPosition.screenY;
-                        const markerWidth = markerForPosition.bbox[2];
+                        // Nessun positioning marker e nessun anchor → usa detection marker (fallback)
+                        const markerX = detectionMarker.screenX;
+                        const markerY = detectionMarker.screenY;
+                        const markerWidth = detectionMarker.bbox[2];
 
                         // Converti coordinate video in coordinate schermo
                         const scaleX = window.innerWidth / this.videoElement.videoWidth;
@@ -1456,7 +1476,7 @@
                         const estimatedDistance = 1.0 / (markerWidth / this.videoElement.videoWidth);
                         scale = (character.base_size || 1.0) * Math.max(0.5, Math.min(2, 1 / estimatedDistance));
 
-                        console.log(`Character ${character.name}: Detection=${detectionMarker.matches}, Positioning=${positioningMarker ? positioningMarker.matches : 'N/A'}, Using ${positioningMarker ? 'POSITIONING' : 'DETECTION'} for position`);
+                        console.log(`🔍 Using DETECTION marker fallback for ${character.name} (no positioning marker, no anchor)`);
                     }
                 } else if (character.use_marker) {
                     // Marker abilitato ma non rilevato - non mostrare
