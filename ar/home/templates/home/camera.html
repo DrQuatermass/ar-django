@@ -367,9 +367,10 @@
                 // Stabilizzazione e smoothing
                 this.characterStates = new Map(); // charId -> { visible, lastSeen, position, positionHistory }
                 this.PERSISTENCE_FRAMES = 5; // Mantieni visibile per N frames dopo perdita marker
-                this.POSITION_HISTORY_SIZE = 3; // Media mobile su N posizioni
+                this.POSITION_HISTORY_SIZE = 2; // Media mobile su N posizioni (ridotto per reattività)
                 this.HYSTERESIS_SHOW = 100; // Soglia per mostrare
                 this.HYSTERESIS_HIDE = 50; // Soglia per nascondere
+                this.OUTLIER_THRESHOLD = 1.2; // Soglia outlier: 120% distanza media (più aggressivo)
 
                 this.initCamera();
                 this.initGPS();
@@ -601,23 +602,63 @@
 
                         // DETECTION MARKER: Salva sempre i dati per visualizzare keypoints
                         if (matches.length > 0) {
-                            const matchedKeypoints = [];
-                            let centerX = 0, centerY = 0;
-                            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                            // FILTRO OUTLIERS anche per detection marker
+                            // Prima passata: calcola centro grezzo
+                            let tempCenterX = 0, tempCenterY = 0;
+                            const allDetectionKeypoints = [];
 
                             matches.forEach(m => {
                                 const kp = keypoints.get(m.queryIdx);
-                                centerX += kp.pt.x;
-                                centerY += kp.pt.y;
-                                minX = Math.min(minX, kp.pt.x);
-                                minY = Math.min(minY, kp.pt.y);
-                                maxX = Math.max(maxX, kp.pt.x);
-                                maxY = Math.max(maxY, kp.pt.y);
-                                matchedKeypoints.push({ x: kp.pt.x, y: kp.pt.y, type: 'detection' });
+                                tempCenterX += kp.pt.x;
+                                tempCenterY += kp.pt.y;
+                                allDetectionKeypoints.push({ x: kp.pt.x, y: kp.pt.y });
                             });
 
-                            centerX /= matches.length;
-                            centerY /= matches.length;
+                            tempCenterX /= matches.length;
+                            tempCenterY /= matches.length;
+
+                            // Calcola distanze e filtra outliers
+                            const detectionDistances = allDetectionKeypoints.map(kp => {
+                                const dx = kp.x - tempCenterX;
+                                const dy = kp.y - tempCenterY;
+                                return Math.sqrt(dx * dx + dy * dy);
+                            });
+
+                            const avgDetectionDistance = detectionDistances.reduce((sum, d) => sum + d, 0) / detectionDistances.length;
+                            const maxAllowedDetectionDistance = avgDetectionDistance * this.OUTLIER_THRESHOLD;
+
+                            // Seconda passata: usa solo keypoints filtrati
+                            const matchedKeypoints = [];
+                            let centerX = 0, centerY = 0;
+                            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                            let filteredDetectionCount = 0;
+
+                            allDetectionKeypoints.forEach((kp, idx) => {
+                                if (detectionDistances[idx] <= maxAllowedDetectionDistance) {
+                                    centerX += kp.x;
+                                    centerY += kp.y;
+                                    minX = Math.min(minX, kp.x);
+                                    minY = Math.min(minY, kp.y);
+                                    maxX = Math.max(maxX, kp.x);
+                                    maxY = Math.max(maxY, kp.y);
+                                    matchedKeypoints.push({ x: kp.x, y: kp.y, type: 'detection' });
+                                    filteredDetectionCount++;
+                                }
+                            });
+
+                            // Fallback se troppi filtrati
+                            if (filteredDetectionCount < matches.length * 0.3) {
+                                centerX = tempCenterX;
+                                centerY = tempCenterY;
+                                minX = Math.min(...allDetectionKeypoints.map(kp => kp.x));
+                                minY = Math.min(...allDetectionKeypoints.map(kp => kp.y));
+                                maxX = Math.max(...allDetectionKeypoints.map(kp => kp.x));
+                                maxY = Math.max(...allDetectionKeypoints.map(kp => kp.y));
+                            } else {
+                                centerX /= filteredDetectionCount;
+                                centerY /= filteredDetectionCount;
+                                console.log(`Filtered detection keypoints: ${filteredDetectionCount}/${matches.length} kept`);
+                            }
 
                             const padding = 20;
                             const bboxX = Math.max(0, minX - padding);
@@ -704,7 +745,7 @@
                                     });
 
                                     const avgDistance = distances.reduce((sum, d) => sum + d, 0) / distances.length;
-                                    const maxAllowedDistance = avgDistance * 1.5; // Soglia: 150% della distanza media
+                                    const maxAllowedDistance = avgDistance * this.OUTLIER_THRESHOLD; // Soglia: 120% della distanza media
 
                                     // SECONDA PASSATA: Usa solo keypoints vicini al centro (rimuovi outliers)
                                     const posMatchedKeypoints = [];
@@ -730,10 +771,16 @@
                                         console.log(`Too many outliers filtered (${filteredCount}/${posMatches.length}), using all keypoints`);
                                         posCenterX = tempCenterX;
                                         posCenterY = tempCenterY;
+                                        // Ricalcola bbox con tutti i keypoints
+                                        posMinX = Math.min(...allKeypoints.map(kp => kp.x));
+                                        posMinY = Math.min(...allKeypoints.map(kp => kp.y));
+                                        posMaxX = Math.max(...allKeypoints.map(kp => kp.x));
+                                        posMaxY = Math.max(...allKeypoints.map(kp => kp.y));
                                     } else {
                                         posCenterX /= filteredCount;
                                         posCenterY /= filteredCount;
                                         console.log(`Filtered positioning keypoints: ${filteredCount}/${posMatches.length} kept (${posMatches.length - filteredCount} outliers removed)`);
+                                        // Bbox già calcolato solo sui keypoints filtrati (più preciso)
                                     }
 
                                     // SMOOTHING per positioning marker (usa history separata)
@@ -753,8 +800,8 @@
                                     const posBboxWidth = (posMaxX - posMinX) + padding * 2;
                                     const posBboxHeight = (posMaxY - posMinY) + padding * 2;
 
-                                    // Soglia più bassa per positioning marker (20 matches)
-                                    const minPositioningMatches = 20;
+                                    // Soglia positioning marker: richiede match di qualità
+                                    const minPositioningMatches = 40;
 
                                     this.detectedPositioningMarkers.set(charId, {
                                         character: template.character,
