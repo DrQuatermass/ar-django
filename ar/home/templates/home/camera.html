@@ -378,6 +378,9 @@
                 this.HYSTERESIS_HIDE = 50; // Soglia per nascondere
                 this.OUTLIER_THRESHOLD = 1.2; // Soglia outlier: 120% distanza media (più aggressivo)
 
+                // World anchoring - ancora i character nello spazio reale
+                this.worldAnchors = new Map(); // charId -> { lat, lng, altitude, heading, timestamp }
+
                 this.initCamera();
                 this.initGPS();
                 this.loadCharacterData();
@@ -822,6 +825,8 @@
                                     // Soglia positioning marker: richiede match di qualità
                                     const minPositioningMatches = 40;
 
+                                    const useForPositioning = posMatches.length >= minPositioningMatches;
+
                                     this.detectedPositioningMarkers.set(charId, {
                                         character: template.character,
                                         screenX: smoothPosX,
@@ -829,9 +834,14 @@
                                         matches: posMatches.length,
                                         bbox: [posBboxX, posBboxY, posBboxWidth, posBboxHeight],
                                         matchedKeypoints: posMatchedKeypoints,
-                                        useForPositioning: posMatches.length >= minPositioningMatches,
+                                        useForPositioning: useForPositioning,
                                         type: 'positioning'
                                     });
+
+                                    // WORLD ANCHORING: Quando rilevi positioning marker, ancora nello spazio
+                                    if (useForPositioning && this.currentPosition && this.currentHeading !== null) {
+                                        this.createWorldAnchor(charId, template.character, smoothPosX, smoothPosY);
+                                    }
 
                                     console.log(`Positioning marker for ${template.character.name}: ${posMatches.length} matches`);
                                 }
@@ -1174,6 +1184,29 @@
                 return nearest;
             }
 
+            createWorldAnchor(charId, character, screenX, screenY) {
+                // Calcola posizione GPS stimata del marker basata su:
+                // 1. Posizione corrente GPS
+                // 2. Heading compass
+                // 3. Posizione marker sullo schermo (per stimare distanza/direzione)
+
+                // Per semplicità, usiamo la posizione GPS corrente come anchor
+                // In una versione più avanzata, potremmo stimare offset basato su screenX/Y
+                const anchor = {
+                    lat: this.currentPosition.coords.latitude,
+                    lng: this.currentPosition.coords.longitude,
+                    altitude: this.currentPosition.coords.altitude || 0,
+                    heading: this.currentHeading,
+                    timestamp: Date.now(),
+                    screenX: screenX,  // Salva posizione schermo per riferimento
+                    screenY: screenY,
+                    isAnchored: true
+                };
+
+                this.worldAnchors.set(charId, anchor);
+                console.log(`⚓ World anchor created for ${character.name} at GPS ${anchor.lat.toFixed(6)}, ${anchor.lng.toFixed(6)}`);
+            }
+
             async loadCharacterData() {
                 try {
                     // OTTIMIZZAZIONE: Usa dati embedded (zero latency)
@@ -1334,8 +1367,10 @@
                         return;
                     }
 
-                    // CHECK 2: Positioning marker decide DOVE mostrare (se disponibile, altrimenti fallback)
+                    // CHECK 2: Positioning marker decide DOVE mostrare (priorità: positioning marker → anchor → detection marker)
                     let positioningMarker = null;
+                    let usingAnchor = false;
+
                     if (this.detectedPositioningMarkers && this.detectedPositioningMarkers.has(character.id)) {
                         const posMarker = this.detectedPositioningMarkers.get(character.id);
                         if (posMarker.useForPositioning) {
@@ -1343,29 +1378,55 @@
                         }
                     }
 
-                    // Usa positioning marker se disponibile, altrimenti detection marker
-                    const markerForPosition = positioningMarker || detectionMarker;
-                    const markerX = markerForPosition.screenX;
-                    const markerY = markerForPosition.screenY;
-                    const markerWidth = markerForPosition.bbox[2];
+                    // Se non c'è positioning marker ma c'è anchor, usa GPS anchor
+                    if (!positioningMarker && this.worldAnchors.has(character.id)) {
+                        const anchor = this.worldAnchors.get(character.id);
 
-                    // Converti coordinate video in coordinate schermo
-                    const scaleX = window.innerWidth / this.videoElement.videoWidth;
-                    const scaleY = window.innerHeight / this.videoElement.videoHeight;
+                        // Usa GPS + compass per calcolare posizione ancorata
+                        const bearing = this.calculateBearing(
+                            this.currentPosition.coords.latitude,
+                            this.currentPosition.coords.longitude,
+                            anchor.lat,
+                            anchor.lng
+                        );
 
-                    // Applica offset dal marker
-                    const pixelsPerMeter = markerWidth * scaleX / 0.3; // Assumo oggetto di ~30cm
-                    screenPosition = {
-                        x: (markerX * scaleX) + (character.marker_offset_x * pixelsPerMeter),
-                        y: (markerY * scaleY) + (character.marker_offset_y * pixelsPerMeter),
-                        visible: true
-                    };
+                        const anchorDistance = this.calculateDistance(
+                            this.currentPosition.coords.latitude,
+                            this.currentPosition.coords.longitude,
+                            anchor.lat,
+                            anchor.lng
+                        );
 
-                    // Scala basata sulla dimensione del marker e distanza stimata
-                    const estimatedDistance = 1.0 / (markerWidth / this.videoElement.videoWidth);
-                    scale = (character.base_size || 1.0) * Math.max(0.5, Math.min(2, 1 / estimatedDistance));
+                        screenPosition = this.worldToScreen(bearing, anchorDistance, character);
+                        scale = (character.base_size || 1.0) * Math.max(0.5, Math.min(2, 1 / (anchorDistance + 0.1)));
+                        usingAnchor = true;
 
-                    console.log(`Character ${character.name}: Detection=${detectionMarker.matches}, Positioning=${positioningMarker ? positioningMarker.matches : 'N/A'}, Using ${positioningMarker ? 'POSITIONING' : 'DETECTION'} for position`);
+                        console.log(`⚓ Using world anchor for ${character.name}: dist=${anchorDistance.toFixed(1)}m, bearing=${bearing.toFixed(0)}°`);
+                    } else {
+                        // Usa positioning marker o detection marker
+                        const markerForPosition = positioningMarker || detectionMarker;
+                        const markerX = markerForPosition.screenX;
+                        const markerY = markerForPosition.screenY;
+                        const markerWidth = markerForPosition.bbox[2];
+
+                        // Converti coordinate video in coordinate schermo
+                        const scaleX = window.innerWidth / this.videoElement.videoWidth;
+                        const scaleY = window.innerHeight / this.videoElement.videoHeight;
+
+                        // Applica offset dal marker
+                        const pixelsPerMeter = markerWidth * scaleX / 0.3; // Assumo oggetto di ~30cm
+                        screenPosition = {
+                            x: (markerX * scaleX) + (character.marker_offset_x * pixelsPerMeter),
+                            y: (markerY * scaleY) + (character.marker_offset_y * pixelsPerMeter),
+                            visible: true
+                        };
+
+                        // Scala basata sulla dimensione del marker e distanza stimata
+                        const estimatedDistance = 1.0 / (markerWidth / this.videoElement.videoWidth);
+                        scale = (character.base_size || 1.0) * Math.max(0.5, Math.min(2, 1 / estimatedDistance));
+
+                        console.log(`Character ${character.name}: Detection=${detectionMarker.matches}, Positioning=${positioningMarker ? positioningMarker.matches : 'N/A'}, Using ${positioningMarker ? 'POSITIONING' : 'DETECTION'} for position`);
+                    }
                 } else if (character.use_marker) {
                     // Marker abilitato ma non rilevato - non mostrare
                     return;
@@ -1397,6 +1458,9 @@
                 characterDiv.style.top = screenPosition.y + 'px';
                 characterDiv.style.transform = 'translate(-50%, -50%)';
 
+                // Indicatore se sta usando anchor
+                const anchorIndicator = usingAnchor ? ' ⚓' : '';
+
                 // Aggiorna contenuto solo se necessario (per evitare flickering)
                 if (isNew || !characterDiv.querySelector('img')) {
                     console.log(`Character ${character.name}: distance=${Math.round(distance)}m, scale=${scale.toFixed(2)}, mode=${character.display_mode}`);
@@ -1406,7 +1470,7 @@
                                  alt="${character.name}"
                                  style="width: ${imgSize}px; height: ${imgSize}px;">
                             <div class="ar-character-info">
-                                <div><strong>${character.name}</strong></div>
+                                <div><strong>${character.name}${anchorIndicator}</strong></div>
                                 <div>${Math.round(distance)}m</div>
                             </div>
                         `;
@@ -1417,10 +1481,14 @@
                 } else {
                     // Aggiorna solo dimensioni immagine e distanza
                     const img = characterDiv.querySelector('img');
+                    const nameDiv = characterDiv.querySelector('.ar-character-info div:first-child strong');
                     const distanceDiv = characterDiv.querySelector('.ar-character-info div:last-child');
                     if (img) {
                         img.style.width = imgSize + 'px';
                         img.style.height = imgSize + 'px';
+                    }
+                    if (nameDiv) {
+                        nameDiv.textContent = character.name + anchorIndicator;
                     }
                     if (distanceDiv) {
                         distanceDiv.textContent = Math.round(distance) + 'm';
