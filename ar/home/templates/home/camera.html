@@ -1185,24 +1185,43 @@
             }
 
             createWorldAnchor(charId, character, screenX, screenY) {
-                // APPROCCIO RELATIVO: Usa GPS configurato del character come riferimento fisso
-                // Elimina GPS drift perché usa coordinate fisse invece di GPS utente variabile
+                // APPROCCIO RELATIVO: Salva posizione sullo schermo quando marker rilevato
+                // Quando perdi il marker, ripristina questa posizione invece di usare GPS
 
-                // Usa semplicemente il GPS configurato del character come anchor
-                // Il marker viene rilevato quando sei nell'area del character, quindi
-                // la posizione configurata È la posizione del marker!
+                // Calcola bearing e distanza relativa dalla camera al marker
+                const bearing = this.calculateBearing(
+                    this.currentPosition.coords.latitude,
+                    this.currentPosition.coords.longitude,
+                    character.target_latitude,
+                    character.target_longitude
+                );
+
+                const distance = this.calculateDistance(
+                    this.currentPosition.coords.latitude,
+                    this.currentPosition.coords.longitude,
+                    character.target_latitude,
+                    character.target_longitude
+                );
+
+                // Salva bearing relativo alla camera (non assoluto)
+                let relativeBearing = (bearing - this.currentHeading + 360) % 360;
+                if (relativeBearing > 180) {
+                    relativeBearing -= 360;
+                }
+
                 const anchor = {
-                    // GPS configurato = punto di riferimento FISSO (no drift)
-                    lat: character.target_latitude,
-                    lng: character.target_longitude,
-                    altitude: character.altitude || 0,
+                    screenX: screenX,
+                    screenY: screenY,
+                    relativeBearing: relativeBearing,  // Angolo relativo alla camera
+                    distance: distance,
+                    cameraHeading: this.currentHeading,
                     timestamp: Date.now(),
                     isAnchored: true,
-                    type: 'fixed_reference'
+                    type: 'screen_relative'
                 };
 
                 this.worldAnchors.set(charId, anchor);
-                console.log(`⚓ Fixed anchor created for ${character.name} at configured GPS ${anchor.lat.toFixed(6)}, ${anchor.lng.toFixed(6)} (no GPS drift)`);
+                console.log(`⚓ Screen anchor created for ${character.name} at screen pos (${screenX.toFixed(0)}, ${screenY.toFixed(0)}), relative bearing=${relativeBearing.toFixed(0)}°, dist=${distance.toFixed(1)}m`);
             }
 
             calculateDestination(lat, lon, bearing, distance) {
@@ -1428,36 +1447,38 @@
 
                         console.log(`📍 Using POSITIONING marker for ${character.name}`);
                     } else if (this.worldAnchors.has(character.id)) {
-                        // Nessun positioning marker → usa GPS anchor
+                        // Nessun positioning marker → usa screen anchor
                         const anchor = this.worldAnchors.get(character.id);
 
-                        // Usa GPS + compass per calcolare posizione ancorata
-                        const bearing = this.calculateBearing(
-                            this.currentPosition.coords.latitude,
-                            this.currentPosition.coords.longitude,
-                            anchor.lat,
-                            anchor.lng
-                        );
+                        // Calcola la nuova posizione sullo schermo basata su cambiamento heading
+                        const headingDelta = this.currentHeading - anchor.cameraHeading;
 
-                        const anchorDistance = this.calculateDistance(
-                            this.currentPosition.coords.latitude,
-                            this.currentPosition.coords.longitude,
-                            anchor.lat,
-                            anchor.lng
-                        );
+                        // Il character rimane alla stessa posizione relativa rispetto alla camera
+                        // Aggiusta solo per rotazione della camera
+                        const screenWidth = window.innerWidth;
+                        const screenHeight = window.innerHeight;
+                        const FOV = 70;
 
-                        screenPosition = this.worldToScreen(bearing, anchorDistance, character);
+                        // Calcola quanto si è spostato sullo schermo a causa della rotazione
+                        const screenShiftRatio = -headingDelta / FOV;  // Negativo perché heading in senso orario sposta schermo a sinistra
+                        const screenShiftX = screenShiftRatio * screenWidth;
 
-                        // Se fuori campo, non mostrare
-                        if (!screenPosition || !screenPosition.visible) {
-                            console.log(`⚓ World anchor for ${character.name} out of view`);
+                        screenPosition = {
+                            x: anchor.screenX + screenShiftX,
+                            y: anchor.screenY,  // Y rimane invariato (nessun tilt per ora)
+                            visible: true
+                        };
+
+                        // Controlla se ancora visibile sullo schermo
+                        if (screenPosition.x < -100 || screenPosition.x > screenWidth + 100) {
+                            console.log(`⚓ Screen anchor for ${character.name} out of view (x=${screenPosition.x.toFixed(0)})`);
                             return;
                         }
 
-                        scale = screenPosition.scale || (character.base_size || 1.0) * Math.max(0.5, Math.min(2, 1 / (anchorDistance + 0.1)));
+                        scale = (character.base_size || 1.0) * Math.max(0.5, Math.min(2, 1 / (anchor.distance + 0.1)));
                         usingAnchor = true;
 
-                        console.log(`⚓ Using world anchor for ${character.name}: dist=${anchorDistance.toFixed(1)}m, bearing=${bearing.toFixed(0)}°`);
+                        console.log(`⚓ Using screen anchor for ${character.name}: headingΔ=${headingDelta.toFixed(0)}°, screen=(${screenPosition.x.toFixed(0)}, ${screenPosition.y.toFixed(0)})`);
                     } else {
                         // Nessun positioning marker e nessun anchor → usa detection marker (fallback)
                         const markerX = detectionMarker.screenX;
