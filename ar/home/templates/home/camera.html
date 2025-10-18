@@ -681,23 +681,60 @@
                                 const posMatches = this.matchFeatures(descriptors, posTemplate.descriptors);
 
                                 if (posMatches.length > 0) {
-                                    const posMatchedKeypoints = [];
-                                    let posCenterX = 0, posCenterY = 0;
-                                    let posMinX = Infinity, posMinY = Infinity, posMaxX = -Infinity, posMaxY = -Infinity;
+                                    // PRIMA PASSATA: Calcola centro grezzo
+                                    let tempCenterX = 0, tempCenterY = 0;
+                                    const allKeypoints = [];
 
                                     posMatches.forEach(m => {
                                         const kp = keypoints.get(m.queryIdx);
-                                        posCenterX += kp.pt.x;
-                                        posCenterY += kp.pt.y;
-                                        posMinX = Math.min(posMinX, kp.pt.x);
-                                        posMinY = Math.min(posMinY, kp.pt.y);
-                                        posMaxX = Math.max(posMaxX, kp.pt.x);
-                                        posMaxY = Math.max(posMaxY, kp.pt.y);
-                                        posMatchedKeypoints.push({ x: kp.pt.x, y: kp.pt.y, type: 'positioning' });
+                                        tempCenterX += kp.pt.x;
+                                        tempCenterY += kp.pt.y;
+                                        allKeypoints.push({ x: kp.pt.x, y: kp.pt.y });
                                     });
 
-                                    posCenterX /= posMatches.length;
-                                    posCenterY /= posMatches.length;
+                                    tempCenterX /= posMatches.length;
+                                    tempCenterY /= posMatches.length;
+
+                                    // FILTRO OUTLIERS: Rimuovi keypoints troppo lontani dal centro
+                                    // Calcola distanza media dal centro
+                                    const distances = allKeypoints.map(kp => {
+                                        const dx = kp.x - tempCenterX;
+                                        const dy = kp.y - tempCenterY;
+                                        return Math.sqrt(dx * dx + dy * dy);
+                                    });
+
+                                    const avgDistance = distances.reduce((sum, d) => sum + d, 0) / distances.length;
+                                    const maxAllowedDistance = avgDistance * 1.5; // Soglia: 150% della distanza media
+
+                                    // SECONDA PASSATA: Usa solo keypoints vicini al centro (rimuovi outliers)
+                                    const posMatchedKeypoints = [];
+                                    let posCenterX = 0, posCenterY = 0;
+                                    let posMinX = Infinity, posMinY = Infinity, posMaxX = -Infinity, posMaxY = -Infinity;
+                                    let filteredCount = 0;
+
+                                    allKeypoints.forEach((kp, idx) => {
+                                        if (distances[idx] <= maxAllowedDistance) {
+                                            posCenterX += kp.x;
+                                            posCenterY += kp.y;
+                                            posMinX = Math.min(posMinX, kp.x);
+                                            posMinY = Math.min(posMinY, kp.y);
+                                            posMaxX = Math.max(posMaxX, kp.x);
+                                            posMaxY = Math.max(posMaxY, kp.y);
+                                            posMatchedKeypoints.push({ x: kp.x, y: kp.y, type: 'positioning' });
+                                            filteredCount++;
+                                        }
+                                    });
+
+                                    // Se troppi keypoints filtrati, usa comunque tutti (evita di perdere il marker)
+                                    if (filteredCount < posMatches.length * 0.3) {
+                                        console.log(`Too many outliers filtered (${filteredCount}/${posMatches.length}), using all keypoints`);
+                                        posCenterX = tempCenterX;
+                                        posCenterY = tempCenterY;
+                                    } else {
+                                        posCenterX /= filteredCount;
+                                        posCenterY /= filteredCount;
+                                        console.log(`Filtered positioning keypoints: ${filteredCount}/${posMatches.length} kept (${posMatches.length - filteredCount} outliers removed)`);
+                                    }
 
                                     // SMOOTHING per positioning marker (usa history separata)
                                     if (!state.positioningHistory) {
