@@ -325,8 +325,7 @@
                             const gray = new cv.Mat();
                             cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY);
 
-                            // Aumenta features per scene ampie (ambienti, panorami)
-                            const orb = new cv.ORB(2000);
+                            const orb = new cv.ORB(500);
                             const keypoints = new cv.KeyPointVector();
                             const descriptors = new cv.Mat();
                             orb.detectAndCompute(gray, new cv.Mat(), keypoints, descriptors);
@@ -397,8 +396,8 @@
                     const gray = new cv.Mat();
                     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
-                    // Estrai features dal frame corrente (più features per scene ampie)
-                    const orb = new cv.ORB(2000);
+                    // Estrai features dal frame corrente
+                    const orb = new cv.ORB(500);
                     const keypoints = new cv.KeyPointVector();
                     const descriptors = new cv.Mat();
                     orb.detectAndCompute(gray, new cv.Mat(), keypoints, descriptors);
