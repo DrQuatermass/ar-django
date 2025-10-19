@@ -9,7 +9,7 @@ ssh root@94.177.171.193
 ## 2. Installa le dipendenze di sistema
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-pip python3-venv apache2 libapache2-mod-wsgi-py3 git
+sudo apt install -y python3 python3-pip python3-venv apache2 git
 ```
 
 ## 3. Crea directory per il progetto
@@ -40,13 +40,36 @@ python manage.py collectstatic --noinput
 python manage.py migrate
 ```
 
-## 7. Configura permessi per Apache
+## 7. Crea servizio systemd per Gunicorn
 ```bash
-sudo chown -R www-data:www-data /var/www/ar_django
-sudo chmod -R 755 /var/www/ar_django
+sudo nano /etc/systemd/system/gunicorn.service
 ```
 
-## 8. Configura Apache2
+Incolla questo contenuto:
+```
+[Unit]
+Description=gunicorn daemon for AR Django
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/ar_django/ar
+Environment="PATH=/var/www/ar_django/venv/bin"
+ExecStart=/var/www/ar_django/venv/bin/gunicorn --workers 3 --bind unix:/var/www/ar_django/ar.sock ar.wsgi:application
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Salva e avvia Gunicorn:
+```bash
+sudo systemctl start gunicorn
+sudo systemctl enable gunicorn
+sudo systemctl status gunicorn
+```
+
+## 8. Configura Apache2 come reverse proxy
 ```bash
 sudo nano /etc/apache2/sites-available/ar_django.conf
 ```
@@ -56,11 +79,6 @@ Incolla questo contenuto:
 <VirtualHost *:80>
     ServerName ombradelportico.it
     ServerAlias www.ombradelportico.it 94.177.171.193
-
-    # Django application
-    WSGIDaemonProcess ar_django python-home=/var/www/ar_django/venv python-path=/var/www/ar_django/ar
-    WSGIProcessGroup ar_django
-    WSGIScriptAlias / /var/www/ar_django/ar/ar/wsgi.py
 
     # Static files
     Alias /static/ /var/www/ar_django/ar/staticfiles/
@@ -74,12 +92,12 @@ Incolla questo contenuto:
         Require all granted
     </Directory>
 
-    # WSGI configuration
-    <Directory /var/www/ar_django/ar/ar>
-        <Files wsgi.py>
-            Require all granted
-        </Files>
-    </Directory>
+    # Proxy to Gunicorn
+    ProxyPreserveHost On
+    ProxyPass /static/ !
+    ProxyPass /media/ !
+    ProxyPass / unix:/var/www/ar_django/ar.sock|http://ombradelportico.it/
+    ProxyPassReverse / unix:/var/www/ar_django/ar.sock|http://ombradelportico.it/
 
     # Logs
     ErrorLog ${APACHE_LOG_DIR}/ar_django_error.log
@@ -89,8 +107,8 @@ Incolla questo contenuto:
 
 Salva e attiva il sito:
 ```bash
+sudo a2enmod proxy proxy_http
 sudo a2ensite ar_django.conf
-sudo a2enmod wsgi
 sudo a2dissite 000-default.conf
 sudo apache2ctl configtest
 sudo systemctl restart apache2
@@ -118,22 +136,41 @@ pip install -r requirements.txt
 cd ar
 python manage.py collectstatic --noinput
 python manage.py migrate
+sudo systemctl restart gunicorn
 sudo systemctl restart apache2
 ```
 
 ### Vedere i log
 ```bash
+# Log Gunicorn
+sudo journalctl -u gunicorn -f
+
+# Log Apache
 sudo tail -f /var/log/apache2/ar_django_error.log
 sudo tail -f /var/log/apache2/ar_django_access.log
 ```
 
-### Riavviare Apache
+### Riavviare servizi
 ```bash
+# Riavvia Gunicorn (dopo modifiche Python)
+sudo systemctl restart gunicorn
+sudo systemctl status gunicorn
+
+# Riavvia Apache (dopo modifiche configurazione)
 sudo systemctl restart apache2
 sudo systemctl status apache2
 ```
 
-### Testare configurazione Apache
+### Debug
 ```bash
+# Testa configurazione Apache
 sudo apache2ctl configtest
+
+# Verifica socket Gunicorn
+ls -la /var/www/ar_django/ar.sock
+
+# Testa Gunicorn manualmente
+cd /var/www/ar_django/ar
+source ../venv/bin/activate
+gunicorn --bind 0.0.0.0:8000 ar.wsgi:application
 ```

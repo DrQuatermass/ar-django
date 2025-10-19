@@ -34,7 +34,9 @@ python manage.py runserver
 
 ## Production Deployment
 
-Deploy using Apache2 + mod_wsgi as documented in `deploy_instructions.md`. Key commands:
+Deploy using **Gunicorn + Apache2** (reverse proxy) as documented in `deploy_instructions.md`.
+
+**Architecture**: Apache2 serves static/media files directly and proxies Django requests to Gunicorn via Unix socket.
 
 ```bash
 # Update code on server
@@ -45,17 +47,23 @@ pip install -r requirements.txt
 cd ar
 python manage.py collectstatic --noinput
 python manage.py migrate
+sudo systemctl restart gunicorn
 sudo systemctl restart apache2
 
 # View logs
-sudo tail -f /var/log/apache2/ar_django_error.log
-sudo tail -f /var/log/apache2/ar_django_access.log
+sudo journalctl -u gunicorn -f              # Gunicorn application logs
+sudo tail -f /var/log/apache2/ar_django_error.log   # Apache error logs
 
-# Test Apache configuration
-sudo apache2ctl configtest
+# Test configuration
+sudo apache2ctl configtest                   # Apache config
+ls -la /var/www/ar_django/ar.sock           # Gunicorn socket
+
+# Restart services
+sudo systemctl restart gunicorn             # After Python code changes
+sudo systemctl restart apache2              # After Apache config changes
 ```
 
-Apache2 VirtualHost serves Django via mod_wsgi with static/media file aliases.
+**Stack**: Apache2 (reverse proxy + static files) → Gunicorn (WSGI server) → Django
 
 ## Architecture
 
