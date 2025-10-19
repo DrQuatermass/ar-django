@@ -1525,31 +1525,8 @@
                         }
                     }
 
-                    // PRIORITÀ: positioning marker > anchor > detection marker
+                    // MOSTRA SOLO CON POSITIONING MARKER ATTIVO
                     if (positioningMarker) {
-                        // CHECK FOV: Anche con marker visibile, nascondi se troppo lontano dall'anchor originale
-                        if (this.worldAnchors.has(character.id)) {
-                            const anchor = this.worldAnchors.get(character.id);
-                            const FOV = 70;
-                            let rotationDelta = 0;
-
-                            // Calcola rotazione dall'anchor
-                            if (anchor.gyroRotation && this.gyroActive) {
-                                rotationDelta = this.gyroRotation.alpha - anchor.gyroRotation.alpha;
-                            } else {
-                                rotationDelta = this.currentHeading - anchor.cameraHeading;
-                            }
-
-                            const maxRotation = FOV / 2;
-
-                            console.log(`🔍 FOV Check (marker mode) for ${character.name}: rotationΔ=${rotationDelta.toFixed(1)}°, max=±${maxRotation}°`);
-
-                            if (Math.abs(rotationDelta) > maxRotation) {
-                                console.log(`❌ ${character.name} marker OUT OF FOV: |${rotationDelta.toFixed(1)}°| > ${maxRotation}° - HIDING`);
-                                return;
-                            }
-                        }
-
                         // Usa positioning marker (real-time tracking)
                         const markerX = positioningMarker.screenX;
                         const markerY = positioningMarker.screenY;
@@ -1569,7 +1546,35 @@
                         scale = (character.base_size || 1.0) * Math.max(0.5, Math.min(2, 1 / estimatedDistance));
 
                         console.log(`📍 Using POSITIONING marker for ${character.name}`);
-                    } else if (this.worldAnchors.has(character.id)) {
+                    } else {
+                        // Nessun positioning marker → NASCONDI (no anchor, no fallback)
+                        console.log(`❌ No positioning marker for ${character.name} - HIDING`);
+                        return;
+                    }
+                } else if (character.use_marker) {
+                    // Marker abilitato ma non rilevato - non mostrare
+                    return;
+                } else {
+                    // MODALITÀ GPS: Usa bearing e distanza normale (solo per character senza marker)
+                    const bearing = this.calculateBearing(
+                        this.currentPosition.coords.latitude,
+                        this.currentPosition.coords.longitude,
+                        character.target_latitude,
+                        character.target_longitude
+                    );
+
+                    screenPosition = this.worldToScreen(bearing, distance, character);
+
+                    // Se il personaggio è fuori dal campo visivo, non mostrarlo
+                    if (!screenPosition || !screenPosition.visible) {
+                        return;
+                    }
+
+                    scale = screenPosition.scale;
+                }
+
+                // Skip old anchor code
+                if (false && this.worldAnchors.has(character.id)) {
                         // Nessun positioning marker → usa screen anchor
                         const anchor = this.worldAnchors.get(character.id);
 
