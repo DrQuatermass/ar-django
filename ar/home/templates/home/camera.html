@@ -1547,6 +1547,11 @@
                     setTimeout(() => {
                         characterDiv.style.opacity = '1';
                     }, 10);
+                } else {
+                    // Ripristina opacity per character esistenti che tornano visibili
+                    if (characterDiv.style.opacity !== '1') {
+                        characterDiv.style.opacity = '1';
+                    }
                 }
             }
 
