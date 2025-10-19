@@ -858,20 +858,24 @@
                                     // Soglia positioning marker: richiede match di qualità
                                     const minPositioningMatches = 40;
 
-                                    const useForPositioning = posMatches.length >= minPositioningMatches;
-
-                                    this.detectedPositioningMarkers.set(charId, {
-                                        character: template.character,
-                                        screenX: smoothPosX,
-                                        screenY: smoothPosY,
-                                        matches: posMatches.length,
-                                        bbox: [posBboxX, posBboxY, posBboxWidth, posBboxHeight],
-                                        matchedKeypoints: posMatchedKeypoints,
-                                        useForPositioning: useForPositioning,
-                                        type: 'positioning'
-                                    });
-
-                                    console.log(`Positioning marker for ${template.character.name}: ${posMatches.length} matches`);
+                                    if (posMatches.length >= minPositioningMatches) {
+                                        // Solo se abbastanza match, salva il positioning marker
+                                        this.detectedPositioningMarkers.set(charId, {
+                                            character: template.character,
+                                            screenX: smoothPosX,
+                                            screenY: smoothPosY,
+                                            matches: posMatches.length,
+                                            bbox: [posBboxX, posBboxY, posBboxWidth, posBboxHeight],
+                                            matchedKeypoints: posMatchedKeypoints,
+                                            useForPositioning: true,
+                                            type: 'positioning'
+                                        });
+                                        console.log(`Positioning marker for ${template.character.name}: ${posMatches.length} matches`);
+                                    } else {
+                                        // Match insufficienti → rimuovi positioning marker dalla Map
+                                        this.detectedPositioningMarkers.delete(charId);
+                                        console.log(`⚠️ Positioning marker for ${template.character.name} removed: ${posMatches.length} < ${minPositioningMatches} matches`);
+                                    }
                                 }
                             }
                         }
