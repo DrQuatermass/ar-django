@@ -1424,6 +1424,11 @@
 
                     // CHECK 1: Detection marker decide SE mostrare (soglia 100)
                     if (!detectionMarker.showCharacter) {
+                        // Nascondi se esiste già
+                        if (!isNew && characterDiv.style.opacity !== '0') {
+                            characterDiv.style.opacity = '0';
+                            console.log(`❌ Detection marker too weak for ${character.name} - HIDING`);
+                        }
                         return;
                     }
 
@@ -1459,12 +1464,19 @@
 
                         console.log(`📍 Using POSITIONING marker for ${character.name}`);
                     } else {
-                        // Nessun positioning marker → NASCONDI (no anchor, no fallback)
-                        console.log(`❌ No positioning marker for ${character.name} - HIDING`);
+                        // Nessun positioning marker → NASCONDI
+                        if (!isNew && characterDiv.style.opacity !== '0') {
+                            characterDiv.style.opacity = '0';
+                            console.log(`❌ No positioning marker for ${character.name} - HIDING`);
+                        }
                         return;
                     }
                 } else if (character.use_marker) {
-                    // Marker abilitato ma non rilevato - non mostrare
+                    // Marker abilitato ma non rilevato - nascondi se esiste
+                    if (!isNew && characterDiv.style.opacity !== '0') {
+                        characterDiv.style.opacity = '0';
+                        console.log(`❌ Marker not detected for ${character.name} - HIDING`);
+                    }
                     return;
                 } else {
                     // MODALITÀ GPS: Usa bearing e distanza normale (solo per character senza marker)
