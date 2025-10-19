@@ -1583,15 +1583,25 @@
                             console.log(`🧭 Using COMPASS: headingΔ=${headingDelta.toFixed(1)}°, shiftX=${screenShiftX.toFixed(0)}px`);
                         }
 
+                        // Controlla se character è ancora nel campo visivo (FOV)
+                        // Invece di controllare pixel, controlla rotazione effettiva
+                        const maxRotation = FOV / 2; // ±35° per FOV 70°
+
+                        if (Math.abs(rotationDelta) > maxRotation) {
+                            console.log(`⚓ Screen anchor for ${character.name} out of FOV: rotation=${rotationDelta.toFixed(1)}° > ${maxRotation}°`);
+                            return;
+                        }
+
                         screenPosition = {
                             x: anchor.screenX + screenShiftX,
                             y: anchor.screenY + screenShiftY,
                             visible: true
                         };
 
-                        // Controlla se ancora visibile sullo schermo
-                        if (screenPosition.x < -100 || screenPosition.x > screenWidth + 100) {
-                            console.log(`⚓ Screen anchor for ${character.name} out of view (x=${screenPosition.x.toFixed(0)})`);
+                        // Verifica aggiuntiva: controlla anche se fuori dai limiti schermo
+                        if (screenPosition.x < -50 || screenPosition.x > screenWidth + 50 ||
+                            screenPosition.y < -50 || screenPosition.y > screenHeight + 50) {
+                            console.log(`⚓ Screen anchor for ${character.name} out of screen bounds`);
                             return;
                         }
 
