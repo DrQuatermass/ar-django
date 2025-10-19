@@ -417,6 +417,11 @@
                 this.headingFilter = new KalmanFilter(0.05, 0.3);
                 this.headingInitialized = false;
 
+                // Gyroscope per rotazioni precise
+                this.gyroRotation = { alpha: 0, beta: 0, gamma: 0 }; // Rotazioni cumulative
+                this.lastGyroTimestamp = null;
+                this.gyroActive = false;
+
                 this.initCamera();
                 this.initGPS();
                 this.loadCharacterData();
@@ -1174,6 +1179,7 @@
                     } else {
                         // Per Android e browser più vecchi
                         this.startOrientationListening();
+                        this.startGyroscopeListening();
                         status.textContent = 'ON';
                         document.getElementById('compass-button').style.display = 'none';
                     }
@@ -1181,6 +1187,40 @@
                     console.log('Errore richiesta permessi orientamento:', error);
                     document.getElementById('compass-status').textContent = 'ERROR';
                 }
+            }
+
+            startGyroscopeListening() {
+                // Usa DeviceMotion per gyroscopio (rotazione rate)
+                window.addEventListener('devicemotion', (event) => {
+                    if (!event.rotationRate) return;
+
+                    const now = Date.now();
+                    if (!this.lastGyroTimestamp) {
+                        this.lastGyroTimestamp = now;
+                        this.gyroActive = true;
+                        return;
+                    }
+
+                    // Delta time in secondi
+                    const dt = (now - this.lastGyroTimestamp) / 1000;
+                    this.lastGyroTimestamp = now;
+
+                    // Integra rotation rate per ottenere rotazione cumulativa
+                    // rotationRate è in gradi/secondo
+                    if (event.rotationRate.alpha !== null) {
+                        this.gyroRotation.alpha += event.rotationRate.alpha * dt;
+                    }
+                    if (event.rotationRate.beta !== null) {
+                        this.gyroRotation.beta += event.rotationRate.beta * dt;
+                    }
+                    if (event.rotationRate.gamma !== null) {
+                        this.gyroRotation.gamma += event.rotationRate.gamma * dt;
+                    }
+
+                    this.gyroActive = true;
+                });
+
+                console.log('🔄 Gyroscope listener started');
             }
 
             filterHeading(rawHeading) {
@@ -1301,13 +1341,16 @@
                     relativeBearing: relativeBearing,  // Angolo relativo alla camera
                     distance: distance,
                     cameraHeading: this.currentHeading,
+                    // Salva stato gyroscopio al momento dell'anchor
+                    gyroRotation: this.gyroActive ? { ...this.gyroRotation } : null,
                     timestamp: Date.now(),
                     isAnchored: true,
-                    type: 'screen_relative'
+                    type: this.gyroActive ? 'gyro_locked' : 'screen_relative'
                 };
 
                 this.worldAnchors.set(charId, anchor);
-                console.log(`⚓ Screen anchor created for ${character.name} at screen pos (${screenX.toFixed(0)}, ${screenY.toFixed(0)}), relative bearing=${relativeBearing.toFixed(0)}°, dist=${distance.toFixed(1)}m`);
+                const lockType = this.gyroActive ? 'GYRO' : 'COMPASS';
+                console.log(`⚓ Screen anchor created for ${character.name} at screen pos (${screenX.toFixed(0)}, ${screenY.toFixed(0)}), relative bearing=${relativeBearing.toFixed(0)}°, dist=${distance.toFixed(1)}m, lock=${lockType}`);
             }
 
 
@@ -1507,22 +1550,42 @@
                         // Nessun positioning marker → usa screen anchor
                         const anchor = this.worldAnchors.get(character.id);
 
-                        // Calcola la nuova posizione sullo schermo basata su cambiamento heading
-                        const headingDelta = this.currentHeading - anchor.cameraHeading;
-
-                        // Il character rimane alla stessa posizione relativa rispetto alla camera
-                        // Aggiusta solo per rotazione della camera
                         const screenWidth = window.innerWidth;
                         const screenHeight = window.innerHeight;
                         const FOV = 70;
 
-                        // Calcola quanto si è spostato sullo schermo a causa della rotazione
-                        const screenShiftRatio = -headingDelta / FOV;  // Negativo perché heading in senso orario sposta schermo a sinistra
-                        const screenShiftX = screenShiftRatio * screenWidth;
+                        let screenShiftX = 0;
+                        let screenShiftY = 0;
+                        let rotationDelta = 0;
+
+                        // Usa gyroscopio se disponibile (più preciso)
+                        if (anchor.gyroRotation && this.gyroActive) {
+                            // Calcola rotazione cumulativa dall'anchor creation
+                            const gyroAlphaDelta = this.gyroRotation.alpha - anchor.gyroRotation.alpha;
+                            const gyroGammaDelta = this.gyroRotation.gamma - anchor.gyroRotation.gamma;
+
+                            // Alpha = rotazione attorno asse Z (heading/yaw)
+                            screenShiftX = -(gyroAlphaDelta / FOV) * screenWidth;
+
+                            // Gamma = rotazione attorno asse Y (tilt sinistra/destra)
+                            // Opzionale: aggiungi compensazione tilt
+                            // screenShiftY = (gyroGammaDelta / 60) * screenHeight;
+
+                            rotationDelta = gyroAlphaDelta;
+
+                            console.log(`🔄 Using GYRO: alphaΔ=${gyroAlphaDelta.toFixed(1)}°, shiftX=${screenShiftX.toFixed(0)}px`);
+                        } else {
+                            // Fallback: usa compass heading (meno preciso)
+                            const headingDelta = this.currentHeading - anchor.cameraHeading;
+                            screenShiftX = -(headingDelta / FOV) * screenWidth;
+                            rotationDelta = headingDelta;
+
+                            console.log(`🧭 Using COMPASS: headingΔ=${headingDelta.toFixed(1)}°, shiftX=${screenShiftX.toFixed(0)}px`);
+                        }
 
                         screenPosition = {
                             x: anchor.screenX + screenShiftX,
-                            y: anchor.screenY,  // Y rimane invariato (nessun tilt per ora)
+                            y: anchor.screenY + screenShiftY,
                             visible: true
                         };
 
@@ -1534,8 +1597,6 @@
 
                         scale = (character.base_size || 1.0) * Math.max(0.5, Math.min(2, 1 / (anchor.distance + 0.1)));
                         usingAnchor = true;
-
-                        console.log(`⚓ Using screen anchor for ${character.name}: headingΔ=${headingDelta.toFixed(0)}°, screen=(${screenPosition.x.toFixed(0)}, ${screenPosition.y.toFixed(0)})`);
                     } else if (!this.worldAnchors.has(character.id)) {
                         // Nessun positioning marker E nessun anchor → usa detection marker come fallback
                         const markerX = detectionMarker.screenX;
