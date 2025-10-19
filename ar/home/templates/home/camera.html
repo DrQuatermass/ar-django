@@ -406,9 +406,6 @@
                 this.HYSTERESIS_HIDE = 50; // Soglia per nascondere
                 this.OUTLIER_THRESHOLD = 1.2; // Soglia outlier: 120% distanza media (più aggressivo)
 
-                // World anchoring - ancora i character nello spazio reale
-                this.worldAnchors = new Map(); // charId -> { screenX, screenY, relativeBearing, distance, cameraHeading, timestamp }
-
                 // Kalman filters per smoothing sensori
                 // GPS: process noise basso (cambia lentamente), measurement noise alto (GPS inaccurato)
                 this.gpsLatFilter = new KalmanFilter(0.001, 0.5);
@@ -416,11 +413,6 @@
                 // Compass: process noise medio (può cambiare velocemente), measurement noise medio-alto
                 this.headingFilter = new KalmanFilter(0.05, 0.3);
                 this.headingInitialized = false;
-
-                // Gyroscope per rotazioni precise
-                this.gyroRotation = { alpha: 0, beta: 0, gamma: 0 }; // Rotazioni cumulative
-                this.lastGyroTimestamp = null;
-                this.gyroActive = false;
 
                 this.initCamera();
                 this.initGPS();
@@ -879,11 +871,6 @@
                                         type: 'positioning'
                                     });
 
-                                    // WORLD ANCHORING: Quando rilevi positioning marker, ancora nello spazio
-                                    if (useForPositioning && this.currentPosition && this.currentHeading !== null) {
-                                        this.createWorldAnchor(charId, template.character, smoothPosX, smoothPosY);
-                                    }
-
                                     console.log(`Positioning marker for ${template.character.name}: ${posMatches.length} matches`);
                                 }
                             }
@@ -1179,7 +1166,6 @@
                     } else {
                         // Per Android e browser più vecchi
                         this.startOrientationListening();
-                        this.startGyroscopeListening();
                         status.textContent = 'ON';
                         document.getElementById('compass-button').style.display = 'none';
                     }
@@ -1187,40 +1173,6 @@
                     console.log('Errore richiesta permessi orientamento:', error);
                     document.getElementById('compass-status').textContent = 'ERROR';
                 }
-            }
-
-            startGyroscopeListening() {
-                // Usa DeviceMotion per gyroscopio (rotazione rate)
-                window.addEventListener('devicemotion', (event) => {
-                    if (!event.rotationRate) return;
-
-                    const now = Date.now();
-                    if (!this.lastGyroTimestamp) {
-                        this.lastGyroTimestamp = now;
-                        this.gyroActive = true;
-                        return;
-                    }
-
-                    // Delta time in secondi
-                    const dt = (now - this.lastGyroTimestamp) / 1000;
-                    this.lastGyroTimestamp = now;
-
-                    // Integra rotation rate per ottenere rotazione cumulativa
-                    // rotationRate è in gradi/secondo
-                    if (event.rotationRate.alpha !== null) {
-                        this.gyroRotation.alpha += event.rotationRate.alpha * dt;
-                    }
-                    if (event.rotationRate.beta !== null) {
-                        this.gyroRotation.beta += event.rotationRate.beta * dt;
-                    }
-                    if (event.rotationRate.gamma !== null) {
-                        this.gyroRotation.gamma += event.rotationRate.gamma * dt;
-                    }
-
-                    this.gyroActive = true;
-                });
-
-                console.log('🔄 Gyroscope listener started');
             }
 
             filterHeading(rawHeading) {
@@ -1308,49 +1260,6 @@
                 });
 
                 return nearest;
-            }
-
-            createWorldAnchor(charId, character, screenX, screenY) {
-                // APPROCCIO RELATIVO: Salva posizione sullo schermo quando marker rilevato
-                // Quando perdi il marker, ripristina questa posizione invece di usare GPS
-
-                // Calcola bearing e distanza relativa dalla camera al marker
-                const bearing = this.calculateBearing(
-                    this.currentPosition.coords.latitude,
-                    this.currentPosition.coords.longitude,
-                    character.target_latitude,
-                    character.target_longitude
-                );
-
-                const distance = this.calculateDistance(
-                    this.currentPosition.coords.latitude,
-                    this.currentPosition.coords.longitude,
-                    character.target_latitude,
-                    character.target_longitude
-                );
-
-                // Salva bearing relativo alla camera (non assoluto)
-                let relativeBearing = (bearing - this.currentHeading + 360) % 360;
-                if (relativeBearing > 180) {
-                    relativeBearing -= 360;
-                }
-
-                const anchor = {
-                    screenX: screenX,
-                    screenY: screenY,
-                    relativeBearing: relativeBearing,  // Angolo relativo alla camera
-                    distance: distance,
-                    cameraHeading: this.currentHeading,
-                    // Salva stato gyroscopio al momento dell'anchor
-                    gyroRotation: this.gyroActive ? { ...this.gyroRotation } : null,
-                    timestamp: Date.now(),
-                    isAnchored: true,
-                    type: this.gyroActive ? 'gyro_locked' : 'screen_relative'
-                };
-
-                this.worldAnchors.set(charId, anchor);
-                const lockType = this.gyroActive ? 'GYRO' : 'COMPASS';
-                console.log(`⚓ Screen anchor created for ${character.name} at screen pos (${screenX.toFixed(0)}, ${screenY.toFixed(0)}), relative bearing=${relativeBearing.toFixed(0)}°, dist=${distance.toFixed(1)}m, lock=${lockType}`);
             }
 
 
@@ -1504,7 +1413,6 @@
 
                 let screenPosition;
                 let scale;
-                let usingAnchor = false; // Inizializza qui per tutti i casi
 
                 // MODALITÀ MARKER: Sistema a doppio check
                 if (character.use_marker && this.detectedMarkers.has(character.id)) {
@@ -1582,9 +1490,6 @@
                 characterDiv.style.top = screenPosition.y + 'px';
                 characterDiv.style.transform = 'translate(-50%, -50%)';
 
-                // Indicatore se sta usando anchor
-                const anchorIndicator = usingAnchor ? ' ⚓' : '';
-
                 // Aggiorna contenuto solo se necessario (per evitare flickering)
                 if (isNew || !characterDiv.querySelector('img')) {
                     console.log(`Character ${character.name}: distance=${Math.round(distance)}m, scale=${scale.toFixed(2)}, mode=${character.display_mode}`);
@@ -1594,7 +1499,7 @@
                                  alt="${character.name}"
                                  style="width: ${imgSize}px; height: ${imgSize}px;">
                             <div class="ar-character-info">
-                                <div><strong>${character.name}${anchorIndicator}</strong></div>
+                                <div><strong>${character.name}</strong></div>
                                 <div>${Math.round(distance)}m</div>
                             </div>
                         `;
@@ -1612,7 +1517,7 @@
                         img.style.height = imgSize + 'px';
                     }
                     if (nameDiv) {
-                        nameDiv.textContent = character.name + anchorIndicator;
+                        nameDiv.textContent = character.name;
                     }
                     if (distanceDiv) {
                         distanceDiv.textContent = Math.round(distance) + 'm';
