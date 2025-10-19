@@ -358,6 +358,34 @@
             }
         });
 
+        // Kalman Filter per smoothing sensori
+        class KalmanFilter {
+            constructor(processNoise = 0.01, measurementNoise = 0.1, initialEstimate = 0) {
+                this.q = processNoise;      // Process noise covariance
+                this.r = measurementNoise;  // Measurement noise covariance
+                this.p = 1.0;               // Estimation error covariance
+                this.x = initialEstimate;   // State estimate
+                this.k = 0;                 // Kalman gain
+            }
+
+            filter(measurement) {
+                // Prediction step
+                this.p = this.p + this.q;
+
+                // Update step
+                this.k = this.p / (this.p + this.r);
+                this.x = this.x + this.k * (measurement - this.x);
+                this.p = (1 - this.k) * this.p;
+
+                return this.x;
+            }
+
+            reset(value) {
+                this.x = value;
+                this.p = 1.0;
+            }
+        }
+
         class ARCamera {
             constructor() {
                 this.currentPosition = null;
@@ -380,6 +408,14 @@
 
                 // World anchoring - ancora i character nello spazio reale
                 this.worldAnchors = new Map(); // charId -> { screenX, screenY, relativeBearing, distance, cameraHeading, timestamp }
+
+                // Kalman filters per smoothing sensori
+                // GPS: process noise basso (cambia lentamente), measurement noise alto (GPS inaccurato)
+                this.gpsLatFilter = new KalmanFilter(0.001, 0.5);
+                this.gpsLngFilter = new KalmanFilter(0.001, 0.5);
+                // Compass: process noise medio (può cambiare velocemente), measurement noise medio-alto
+                this.headingFilter = new KalmanFilter(0.05, 0.3);
+                this.headingInitialized = false;
 
                 this.initCamera();
                 this.initGPS();
@@ -1070,7 +1106,35 @@
 
                 navigator.geolocation.watchPosition(
                     (position) => {
-                        this.currentPosition = position;
+                        // Applica filtro Kalman a GPS per ridurre jitter/drift
+                        const rawLat = position.coords.latitude;
+                        const rawLng = position.coords.longitude;
+
+                        // Prima lettura: inizializza i filtri
+                        if (!this.currentPosition) {
+                            this.gpsLatFilter.reset(rawLat);
+                            this.gpsLngFilter.reset(rawLng);
+                        }
+
+                        const smoothLat = this.gpsLatFilter.filter(rawLat);
+                        const smoothLng = this.gpsLngFilter.filter(rawLng);
+
+                        // Crea position object con coordinate smooth
+                        this.currentPosition = {
+                            coords: {
+                                latitude: smoothLat,
+                                longitude: smoothLng,
+                                altitude: position.coords.altitude,
+                                accuracy: position.coords.accuracy,
+                                altitudeAccuracy: position.coords.altitudeAccuracy,
+                                heading: position.coords.heading,
+                                speed: position.coords.speed
+                            },
+                            timestamp: position.timestamp
+                        };
+
+                        console.log(`📍 GPS filtered: raw=(${rawLat.toFixed(6)}, ${rawLng.toFixed(6)}) → smooth=(${smoothLat.toFixed(6)}, ${smoothLng.toFixed(6)})`);
+
                         this.updateGPSDisplay();
                         this.updateAROverlay();
                         this.updateCharacterPointer();
@@ -1119,15 +1183,34 @@
                 }
             }
 
+            filterHeading(rawHeading) {
+                // Gestisce heading circolare (0-360°) con Kalman filter
+                if (!this.headingInitialized) {
+                    this.headingFilter.reset(rawHeading);
+                    this.headingInitialized = true;
+                    return rawHeading;
+                }
+
+                // Gestisci wraparound circolare (es. 359° → 1° non deve smoothare a 180°)
+                let diff = rawHeading - this.headingFilter.x;
+                if (diff > 180) diff -= 360;
+                if (diff < -180) diff += 360;
+
+                const smoothHeading = (this.headingFilter.filter(this.headingFilter.x + diff) + 360) % 360;
+                return smoothHeading;
+            }
+
             startOrientationListening() {
                 if (window.DeviceOrientationEvent) {
                     // Usa deviceorientationabsolute per il nord magnetico assoluto (iOS/Android moderni)
                     window.addEventListener('deviceorientationabsolute', (event) => {
                         if (event.alpha !== null) {
-                            // Per iOS, event.alpha è relativo al nord magnetico
-                            // Per Android con supporto assoluto, è già corretto
-                            this.currentHeading = event.alpha;
-                            document.getElementById('compass-status').textContent = `${Math.round(event.alpha)}°`;
+                            // Applica filtro Kalman per ridurre oscillazioni compass
+                            const rawHeading = event.alpha;
+                            const smoothHeading = this.filterHeading(rawHeading);
+
+                            this.currentHeading = smoothHeading;
+                            document.getElementById('compass-status').textContent = `${Math.round(smoothHeading)}°`;
                             this.throttledUpdatePointer();
                         }
                     });
@@ -1136,15 +1219,18 @@
                     window.addEventListener('deviceorientation', (event) => {
                         if (event.alpha !== null) {
                             // Su alcuni dispositivi potrebbe essere necessario correggere l'orientamento
-                            let heading = event.alpha;
+                            let rawHeading = event.alpha;
 
                             // Correzione per iOS dove l'orientamento potrebbe essere diverso
                             if (event.webkitCompassHeading) {
-                                heading = event.webkitCompassHeading;
+                                rawHeading = event.webkitCompassHeading;
                             }
 
-                            this.currentHeading = heading;
-                            document.getElementById('compass-status').textContent = `${Math.round(heading)}°`;
+                            // Applica filtro Kalman
+                            const smoothHeading = this.filterHeading(rawHeading);
+
+                            this.currentHeading = smoothHeading;
+                            document.getElementById('compass-status').textContent = `${Math.round(smoothHeading)}°`;
                             this.throttledUpdatePointer();
                         }
                     });
