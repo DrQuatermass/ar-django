@@ -1587,10 +1587,14 @@
                         // Invece di controllare pixel, controlla rotazione effettiva
                         const maxRotation = FOV / 2; // ±35° per FOV 70°
 
+                        console.log(`🔍 FOV Check for ${character.name}: rotationΔ=${rotationDelta.toFixed(1)}°, max=±${maxRotation}°, abs=${Math.abs(rotationDelta).toFixed(1)}°`);
+
                         if (Math.abs(rotationDelta) > maxRotation) {
-                            console.log(`⚓ Screen anchor for ${character.name} out of FOV: rotation=${rotationDelta.toFixed(1)}° > ${maxRotation}°`);
+                            console.log(`❌ ${character.name} OUT OF FOV: |${rotationDelta.toFixed(1)}°| > ${maxRotation}° - HIDING`);
                             return;
                         }
+
+                        console.log(`✅ ${character.name} still in FOV - showing`);
 
                         screenPosition = {
                             x: anchor.screenX + screenShiftX,
