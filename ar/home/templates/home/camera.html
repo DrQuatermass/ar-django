@@ -1862,7 +1862,9 @@
                 }
 
                 // Calcola la scala in base alla distanza e base_size
-                const baseScale = Math.max(0.3, Math.min(2, 50 / distance));
+                // Formula: più vicino = più grande, più lontano = più piccolo
+                // 1m = 3x, 5m = 1.5x, 10m = 1x, 30m = 0.5x, 60m+ = 0.3x
+                const baseScale = Math.max(0.3, Math.min(3, 15 / distance));
                 const scale = baseScale * (character.base_size || 1.0);
 
                 return {
@@ -1904,7 +1906,7 @@
                 const y = (anchor.screenY * scaleY) + tiltCompensation;
 
                 // Mantieni la scala originale (distanza dall'anchor non cambia significativamente)
-                const baseScale = Math.max(0.3, Math.min(2, 50 / anchor.distance));
+                const baseScale = Math.max(0.3, Math.min(3, 15 / anchor.distance));
                 const scale = baseScale * (character.base_size || 1.0);
 
                 return {
