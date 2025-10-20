@@ -945,6 +945,7 @@
 
                                     const smoothPosX = state.positioningHistory.reduce((sum, p) => sum + p.x, 0) / state.positioningHistory.length;
                                     const smoothPosY = state.positioningHistory.reduce((sum, p) => sum + p.y, 0) / state.positioningHistory.length;
+                                    console.log(`🎯 Positioning marker center in VIDEO space: x=${smoothPosX.toFixed(1)}, y=${smoothPosY.toFixed(1)} (video: ${this.videoElement.videoWidth}×${this.videoElement.videoHeight})`);
 
                                     // Padding PERCENTUALE anche per positioning marker
                                     const posMarkerWidth = posMaxX - posMinX;
@@ -979,9 +980,10 @@
                                         if (this.positionAnchors.has(charId)) {
                                             // Anchor già esiste → aggiorna con posizione più precisa
                                             const anchor = this.positionAnchors.get(charId);
+                                            console.log(`📍 Anchor BEFORE update: screenX=${anchor.screenX.toFixed(1)}, screenY=${anchor.screenY.toFixed(1)}`);
                                             anchor.screenX = smoothPosX;
                                             anchor.screenY = smoothPosY;
-                                            console.log(`📍 Anchor UPDATED with positioning marker for ${character.name}`);
+                                            console.log(`📍 Anchor AFTER update: screenX=${anchor.screenX.toFixed(1)}, screenY=${anchor.screenY.toFixed(1)}`);
                                         } else {
                                             // Crea nuovo anchor (caso raro: positioning trovato prima di detection)
                                             const bearing = this.calculateBearing(
@@ -1700,12 +1702,16 @@
                                 const scaleX = window.innerWidth / this.videoElement.videoWidth;
                                 const scaleY = window.innerHeight / this.videoElement.videoHeight;
 
+                                console.log(`📐 Scale factors: scaleX=${scaleX.toFixed(3)}, scaleY=${scaleY.toFixed(3)} (screen: ${window.innerWidth}×${window.innerHeight})`);
+                                console.log(`📐 Marker position scaled to SCREEN: x=${(markerX * scaleX).toFixed(1)}, y=${(markerY * scaleY).toFixed(1)}`);
+
                                 const pixelsPerMeter = markerWidth * scaleX / 0.3;
                                 screenPosition = {
                                     x: (markerX * scaleX) + (character.marker_offset_x * pixelsPerMeter),
                                     y: (markerY * scaleY) + (character.marker_offset_y * pixelsPerMeter),
                                     visible: true
                                 };
+                                console.log(`📐 Final screen position with offset: x=${screenPosition.x.toFixed(1)}, y=${screenPosition.y.toFixed(1)}`);
 
                                 const estimatedDistance = 1.0 / (markerWidth / this.videoElement.videoWidth);
 
@@ -1765,6 +1771,7 @@
                 const imgSize = baseSize * scale;
 
                 // AGGIORNA posizione (le transizioni CSS renderanno il movimento smooth)
+                console.log(`🎨 Applying position to DOM: left=${screenPosition.x.toFixed(1)}px, top=${screenPosition.y.toFixed(1)}px with translate(-50%, -50%)`);
                 characterDiv.style.left = screenPosition.x + 'px';
                 characterDiv.style.top = screenPosition.y + 'px';
                 characterDiv.style.transform = 'translate(-50%, -50%)';
