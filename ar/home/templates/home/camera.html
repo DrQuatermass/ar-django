@@ -419,6 +419,9 @@
                 this.currentGamma = 0; // Roll (inclinazione sinistra/destra)
                 this.screenOrientation = 'portrait'; // portrait | landscape
 
+                // Ancoraggi 3D persistenti per positioning markers
+                this.positionAnchors = new Map(); // charId -> { screenX, screenY, bearing, distance, gpsLat, gpsLng, heading, createdAt }
+
                 this.initCamera();
                 this.initGPS();
                 this.loadCharacterData();
@@ -635,6 +638,17 @@
                         // OTTIMIZZAZIONE: Rileva marker solo se dentro l'area di attivazione
                         if (distance > character.activation_distance) {
                             console.log(`Skipping marker detection for ${character.name}: too far (${Math.round(distance)}m > ${character.activation_distance}m)`);
+                            // Rimuovi ancoraggio se esci dall'area
+                            if (this.positionAnchors.has(charId)) {
+                                this.positionAnchors.delete(charId);
+                                console.log(`🔓 Anchor removed for ${character.name}: outside activation area`);
+                            }
+                            continue;
+                        }
+
+                        // SKIP marker detection se esiste già un ancoraggio 3D
+                        if (this.positionAnchors.has(charId)) {
+                            console.log(`⚓ Using anchored position for ${character.name}, skipping detection`);
                             continue;
                         }
 
@@ -875,7 +889,37 @@
                                             useForPositioning: true,
                                             type: 'positioning'
                                         });
-                                        console.log(`Positioning marker for ${template.character.name}: ${posMatches.length} matches`);
+                                        console.log(`✓ Positioning marker for ${template.character.name}: ${posMatches.length} matches`);
+
+                                        // Crea ancoraggio 3D persistente (se non esiste già)
+                                        if (!this.positionAnchors.has(charId)) {
+                                            const bearing = this.calculateBearing(
+                                                this.currentPosition.coords.latitude,
+                                                this.currentPosition.coords.longitude,
+                                                character.target_latitude,
+                                                character.target_longitude
+                                            );
+                                            const distance = this.calculateDistance(
+                                                this.currentPosition.coords.latitude,
+                                                this.currentPosition.coords.longitude,
+                                                character.target_latitude,
+                                                character.target_longitude
+                                            );
+
+                                            this.positionAnchors.set(charId, {
+                                                screenX: smoothPosX,
+                                                screenY: smoothPosY,
+                                                bearing: bearing,
+                                                distance: distance,
+                                                gpsLat: this.currentPosition.coords.latitude,
+                                                gpsLng: this.currentPosition.coords.longitude,
+                                                heading: this.currentHeading,
+                                                beta: this.currentBeta,
+                                                gamma: this.currentGamma,
+                                                createdAt: Date.now()
+                                            });
+                                            console.log(`🔒 Anchor created for ${character.name} at bearing=${Math.round(bearing)}° distance=${Math.round(distance)}m`);
+                                        }
                                     } else {
                                         // Match insufficienti → rimuovi positioning marker dalla Map
                                         this.detectedPositioningMarkers.delete(charId);
@@ -1540,42 +1584,57 @@
                         return;
                     }
 
-                    // CHECK 2: Positioning marker decide DOVE mostrare (priorità: positioning marker → anchor → detection marker)
-                    let positioningMarker = null;
+                    // CHECK 2: Positioning decide DOVE mostrare
+                    // Priorità: ANCHOR (persistente) → positioning marker (real-time)
 
-                    if (this.detectedPositioningMarkers && this.detectedPositioningMarkers.has(character.id)) {
+                    // Se esiste ancoraggio, usa quello (calcola posizione da movimento telefono)
+                    if (this.positionAnchors.has(character.id)) {
+                        const anchor = this.positionAnchors.get(character.id);
+
+                        // Calcola posizione schermo dall'ancoraggio usando movimenti del telefono
+                        screenPosition = this.calculateAnchoredPosition(anchor, character);
+
+                        if (!screenPosition || !screenPosition.visible) {
+                            // Ancoraggio fuori FOV - nascondi
+                            if (!isNew && characterDiv.style.opacity !== '0') {
+                                characterDiv.style.opacity = '0';
+                                console.log(`⚓ Anchor for ${character.name} outside FOV - HIDING`);
+                            }
+                            return;
+                        }
+
+                        scale = screenPosition.scale;
+                        console.log(`⚓ Using ANCHORED position for ${character.name}`);
+                    }
+                    // Altrimenti cerca positioning marker real-time
+                    else if (this.detectedPositioningMarkers && this.detectedPositioningMarkers.has(character.id)) {
                         const posMarker = this.detectedPositioningMarkers.get(character.id);
                         if (posMarker.useForPositioning) {
-                            positioningMarker = posMarker;
+                            // Usa positioning marker (real-time tracking)
+                            const markerX = posMarker.screenX;
+                            const markerY = posMarker.screenY;
+                            const markerWidth = posMarker.bbox[2];
+
+                            const scaleX = window.innerWidth / this.videoElement.videoWidth;
+                            const scaleY = window.innerHeight / this.videoElement.videoHeight;
+
+                            const pixelsPerMeter = markerWidth * scaleX / 0.3;
+                            screenPosition = {
+                                x: (markerX * scaleX) + (character.marker_offset_x * pixelsPerMeter),
+                                y: (markerY * scaleY) + (character.marker_offset_y * pixelsPerMeter),
+                                visible: true
+                            };
+
+                            const estimatedDistance = 1.0 / (markerWidth / this.videoElement.videoWidth);
+                            scale = (character.base_size || 1.0) * Math.max(0.5, Math.min(2, 1 / estimatedDistance));
+
+                            console.log(`📍 Using POSITIONING marker for ${character.name}`);
                         }
-                    }
-
-                    // MOSTRA SOLO CON POSITIONING MARKER ATTIVO
-                    if (positioningMarker) {
-                        // Usa positioning marker (real-time tracking)
-                        const markerX = positioningMarker.screenX;
-                        const markerY = positioningMarker.screenY;
-                        const markerWidth = positioningMarker.bbox[2];
-
-                        const scaleX = window.innerWidth / this.videoElement.videoWidth;
-                        const scaleY = window.innerHeight / this.videoElement.videoHeight;
-
-                        const pixelsPerMeter = markerWidth * scaleX / 0.3;
-                        screenPosition = {
-                            x: (markerX * scaleX) + (character.marker_offset_x * pixelsPerMeter),
-                            y: (markerY * scaleY) + (character.marker_offset_y * pixelsPerMeter),
-                            visible: true
-                        };
-
-                        const estimatedDistance = 1.0 / (markerWidth / this.videoElement.videoWidth);
-                        scale = (character.base_size || 1.0) * Math.max(0.5, Math.min(2, 1 / estimatedDistance));
-
-                        console.log(`📍 Using POSITIONING marker for ${character.name}`);
                     } else {
-                        // Nessun positioning marker → NASCONDI
+                        // Nessun positioning marker né ancoraggio → NASCONDI
                         if (!isNew && characterDiv.style.opacity !== '0') {
                             characterDiv.style.opacity = '0';
-                            console.log(`❌ No positioning marker for ${character.name} - HIDING`);
+                            console.log(`❌ No positioning marker or anchor for ${character.name} - HIDING`);
                         }
                         return;
                     }
@@ -1765,6 +1824,48 @@
 
                 // Calcola la scala in base alla distanza e base_size
                 const baseScale = Math.max(0.3, Math.min(2, 50 / distance));
+                const scale = baseScale * (character.base_size || 1.0);
+
+                return {
+                    x: x,
+                    y: y,
+                    scale: scale,
+                    visible: true
+                };
+            }
+
+            calculateAnchoredPosition(anchor, character) {
+                // Calcola posizione schermo dall'ancoraggio 3D in base ai movimenti del telefono
+                const screenWidth = window.innerWidth;
+                const screenHeight = window.innerHeight;
+                const FOV = this.getEffectiveFOV();
+
+                // Calcola bearing relativo rispetto alla camera ATTUALE
+                let relativeBearing = (anchor.bearing - this.currentHeading + 360) % 360;
+                if (relativeBearing > 180) {
+                    relativeBearing -= 360;
+                }
+
+                // Verifica se dentro FOV orizzontale
+                if (Math.abs(relativeBearing) > FOV / 2) {
+                    return null; // Fuori campo visivo
+                }
+
+                // Posizione X dal bearing relativo
+                const x = screenWidth / 2 + (relativeBearing / FOV) * screenWidth;
+
+                // Posizione Y considerando tilt del telefono
+                // Delta tilt = differenza tra inclinazione attuale e quando è stato creato l'anchor
+                const deltaBeta = this.currentBeta - anchor.beta;
+                const tiltCompensation = (deltaBeta / 90) * (screenHeight * 0.3);
+
+                // Usa la Y originale dell'anchor + compensazione tilt
+                const scaleX = screenWidth / this.videoElement.videoWidth;
+                const scaleY = screenHeight / this.videoElement.videoHeight;
+                const y = (anchor.screenY * scaleY) + tiltCompensation;
+
+                // Mantieni la scala originale (distanza dall'anchor non cambia significativamente)
+                const baseScale = Math.max(0.3, Math.min(2, 50 / anchor.distance));
                 const scale = baseScale * (character.base_size || 1.0);
 
                 return {
