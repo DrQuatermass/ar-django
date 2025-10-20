@@ -592,7 +592,51 @@
 
             detectMarkersInFrame() {
                 try {
-                    // Cattura frame dal video
+                    if (!this.currentPosition) {
+                        console.log('No GPS position available for marker detection');
+                        return;
+                    }
+
+                    // STEP 1: Trova character PIÙ VICINO (senza anchor)
+                    let nearestChar = null;
+                    let nearestDistance = Infinity;
+
+                    for (const [charId, template] of this.markerTemplates) {
+                        const character = template.character;
+                        const distance = this.calculateDistance(
+                            this.currentPosition.coords.latitude,
+                            this.currentPosition.coords.longitude,
+                            character.target_latitude,
+                            character.target_longitude
+                        );
+
+                        // Fuori area → rimuovi anchor
+                        if (distance > character.activation_distance) {
+                            if (this.positionAnchors.has(charId)) {
+                                this.positionAnchors.delete(charId);
+                                console.log(`🔓 Anchor removed for ${character.name}: outside area`);
+                            }
+                            continue;
+                        }
+
+                        // Trova il più vicino SENZA anchor
+                        if (!this.positionAnchors.has(charId) && distance < nearestDistance) {
+                            nearestDistance = distance;
+                            nearestChar = { charId, template, character, distance };
+                        }
+                    }
+
+                    // STEP 2: Se tutti hanno anchor → SKIP
+                    if (!nearestChar) {
+                        if (this.positionAnchors.size > 0) {
+                            console.log(`⚓ All ${this.positionAnchors.size} characters anchored - SKIP`);
+                        }
+                        return;
+                    }
+
+                    console.log(`🎯 Scan ONLY nearest: ${nearestChar.character.name} (${Math.round(nearestDistance)}m)`);
+
+                    // STEP 3: Processa SOLO character più vicino
                     this.processingCanvas.width = this.videoElement.videoWidth;
                     this.processingCanvas.height = this.videoElement.videoHeight;
                     this.processingCtx.drawImage(this.videoElement, 0, 0);
@@ -601,7 +645,6 @@
                     const gray = new cv.Mat();
                     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
-                    // Estrai features dal frame corrente
                     const orb = new cv.ORB(500);
                     const keypoints = new cv.KeyPointVector();
                     const descriptors = new cv.Mat();
@@ -611,58 +654,16 @@
                     this.detectedPositioningMarkers = this.detectedPositioningMarkers || new Map();
                     this.detectedPositioningMarkers.clear();
 
-                    // Cerca marker solo per character nell'area GPS
-                    let bestMatch = null;
-                    let maxMatches = 0;
+                    // Usa solo character più vicino
+                    const charId = nearestChar.charId;
+                    const template = nearestChar.template;
+                    const character = nearestChar.character;
+                    const distance = nearestChar.distance;
 
-                    if (!this.currentPosition) {
-                        console.log('No GPS position available for marker detection');
-                        src.delete();
-                        gray.delete();
-                        keypoints.delete();
-                        descriptors.delete();
-                        return;
-                    }
+                    const matches = this.matchFeatures(descriptors, template.descriptors, keypoints, template.keypoints);
 
-                    for (const [charId, template] of this.markerTemplates) {
-                        const character = template.character;
-
-                        // Calcola distanza dal character
-                        const distance = this.calculateDistance(
-                            this.currentPosition.coords.latitude,
-                            this.currentPosition.coords.longitude,
-                            character.target_latitude,
-                            character.target_longitude
-                        );
-
-                        // OTTIMIZZAZIONE: Rileva marker solo se dentro l'area di attivazione
-                        if (distance > character.activation_distance) {
-                            console.log(`Skipping marker detection for ${character.name}: too far (${Math.round(distance)}m > ${character.activation_distance}m)`);
-                            // Rimuovi ancoraggio se esci dall'area
-                            if (this.positionAnchors.has(charId)) {
-                                this.positionAnchors.delete(charId);
-                                console.log(`🔓 Anchor removed for ${character.name}: outside activation area`);
-                            }
-                            continue;
-                        }
-
-                        // SKIP marker detection se esiste già un ancoraggio 3D
-                        if (this.positionAnchors.has(charId)) {
-                            console.log(`⚓ Using anchored position for ${character.name}, skipping detection`);
-                            continue;
-                        }
-
-                        console.log(`Detecting marker for ${character.name}: inside area (${Math.round(distance)}m)`);
-
-                        const matches = this.matchFeatures(descriptors, template.descriptors, keypoints, template.keypoints);
-
-                        if (matches.length > maxMatches) {
-                            maxMatches = matches.length;
-                            bestMatch = { charId, template, matches, keypoints };
-                        }
-
-                        // DETECTION MARKER: Salva sempre i dati per visualizzare keypoints
-                        if (matches.length > 0) {
+                    // DETECTION MARKER: Salva sempre i dati per visualizzare keypoints
+                    if (matches.length > 0) {
                             // FILTRO OUTLIERS anche per detection marker
                             // Prima passata: calcola centro grezzo
                             let tempCenterX = 0, tempCenterY = 0;
@@ -927,7 +928,6 @@
                                     }
                                 }
                             }
-                        }
                     }
 
                     // PERSISTENZA TEMPORALE: Mantieni visibili character recentemente visti
@@ -984,9 +984,6 @@
                         const persistTag = detected.isPersisted ? ' (P)' : '';
                         markerStatus.textContent = `🟢 ${detected.matches} matches${persistTag}`;
                         markerStatus.style.color = '#00ff00';
-                    } else if (bestMatch && maxMatches > 0) {
-                        markerStatus.textContent = `🟡 ${maxMatches}/100 matches`;
-                        markerStatus.style.color = '#ff9900';
                     } else {
                         markerStatus.textContent = `🔴 No matches`;
                         markerStatus.style.color = '#ff0000';
