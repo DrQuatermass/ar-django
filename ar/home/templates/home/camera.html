@@ -626,10 +626,11 @@
                         }
                     }
 
-                    // STEP 2: Se tutti hanno anchor → SKIP
+                    // STEP 2: Se tutti hanno anchor → SKIP scan ma aggiorna overlay
                     if (!nearestChar) {
                         if (this.positionAnchors.size > 0) {
-                            console.log(`⚓ All ${this.positionAnchors.size} characters anchored - SKIP`);
+                            console.log(`⚓ All ${this.positionAnchors.size} characters anchored - SKIP scan`);
+                            this.updateAROverlay(); // Aggiorna posizione da anchor
                         }
                         return;
                     }
@@ -998,8 +999,8 @@
                     // Disegna i rettangoli dei marker rilevati
                     this.drawMarkerHighlights();
 
-                    // Aggiorna overlay se ci sono marker rilevati
-                    if (this.detectedMarkers.size > 0) {
+                    // Aggiorna overlay se ci sono marker rilevati O anchor attivi
+                    if (this.detectedMarkers.size > 0 || this.positionAnchors.size > 0) {
                         this.updateAROverlay();
                     }
                 } catch (error) {
