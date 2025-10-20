@@ -635,7 +635,9 @@
                         return;
                     }
 
-                    console.log(`🎯 Scan ONLY nearest: ${nearestChar.character.name} (${Math.round(nearestDistance)}m)`);
+                    // DEBUG: Verifica stato anchor
+                    const hasAnchor = this.positionAnchors.has(nearestChar.charId);
+                    console.log(`🎯 Scan nearest: ${nearestChar.character.name} (${Math.round(nearestDistance)}m) - Anchor: ${hasAnchor ? 'YES' : 'NO'}`);
 
                     // STEP 3: Processa SOLO character più vicino
                     this.processingCanvas.width = this.videoElement.videoWidth;
