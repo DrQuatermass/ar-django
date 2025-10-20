@@ -635,7 +635,7 @@
 
                         console.log(`Detecting marker for ${character.name}: inside area (${Math.round(distance)}m)`);
 
-                        const matches = this.matchFeatures(descriptors, template.descriptors);
+                        const matches = this.matchFeatures(descriptors, template.descriptors, keypoints, template.keypoints);
 
                         if (matches.length > maxMatches) {
                             maxMatches = matches.length;
@@ -767,7 +767,7 @@
                             if (matches.length >= this.HYSTERESIS_SHOW && this.positioningMarkerTemplates.has(charId)) {
                                 console.log(`Detection passed threshold, checking positioning marker for ${template.character.name}`);
                                 const posTemplate = this.positioningMarkerTemplates.get(charId);
-                                const posMatches = this.matchFeatures(descriptors, posTemplate.descriptors);
+                                const posMatches = this.matchFeatures(descriptors, posTemplate.descriptors, keypoints, posTemplate.keypoints);
 
                                 if (posMatches.length > 0) {
                                     // PRIMA PASSATA: Calcola centro grezzo
@@ -1066,7 +1066,7 @@
                 }
             }
 
-            matchFeatures(desc1, desc2) {
+            matchFeatures(desc1, desc2, keypoints1, keypoints2) {
                 if (!desc1 || !desc2 || desc1.rows === 0 || desc2.rows === 0) {
                     return [];
                 }
@@ -1075,17 +1075,105 @@
                 const matches = new cv.DMatchVector();
                 bf.match(desc1, desc2, matches);
 
-                // Filtra i match migliori (soglia più permissiva per scene ampie)
+                // Prima fase: Filtra per distanza Hamming
                 const goodMatches = [];
                 for (let i = 0; i < matches.size(); i++) {
                     const match = matches.get(i);
-                    if (match.distance < 70) { // Threshold più permissivo per variazioni di luce/angolazione
+                    if (match.distance < 50) { // Soglia più stretta per ridurre falsi positivi
                         goodMatches.push(match);
                     }
                 }
 
                 matches.delete();
+
+                // Seconda fase: Verifica geometria con homography (se abbastanza match)
+                if (goodMatches.length >= 10 && keypoints1 && keypoints2) {
+                    const validMatches = this.validateMatchesWithHomography(goodMatches, keypoints1, keypoints2);
+                    console.log(`Homography validation: ${goodMatches.length} → ${validMatches.length} matches`);
+                    return validMatches;
+                }
+
                 return goodMatches;
+            }
+
+            validateMatchesWithHomography(matches, keypointsFrame, keypointsTemplate) {
+                try {
+                    if (matches.length < 10) {
+                        return matches; // Troppo pochi match per calcolare homography
+                    }
+
+                    // Estrai coordinate dei match
+                    const srcPoints = [];
+                    const dstPoints = [];
+
+                    matches.forEach(m => {
+                        const kpFrame = keypointsFrame.get(m.queryIdx);
+                        const kpTemplate = keypointsTemplate.get(m.trainIdx);
+                        srcPoints.push(kpFrame.pt.x, kpFrame.pt.y);
+                        dstPoints.push(kpTemplate.pt.x, kpTemplate.pt.y);
+                    });
+
+                    const srcMat = cv.matFromArray(matches.length, 1, cv.CV_32FC2, srcPoints);
+                    const dstMat = cv.matFromArray(matches.length, 1, cv.CV_32FC2, dstPoints);
+
+                    // Calcola homography con RANSAC (rimuove outliers)
+                    const H = cv.findHomography(srcMat, dstMat, cv.RANSAC, 5.0);
+
+                    if (H.empty()) {
+                        console.log('⚠️ Homography failed - no valid transformation found');
+                        srcMat.delete();
+                        dstMat.delete();
+                        return []; // Nessuna trasformazione coerente trovata
+                    }
+
+                    // Verifica se homography è valida (non degenere)
+                    const det = cv.determinant(H);
+                    if (Math.abs(det) < 0.01 || Math.abs(det) > 100) {
+                        console.log(`⚠️ Homography degenerate (det=${det.toFixed(3)})`);
+                        H.delete();
+                        srcMat.delete();
+                        dstMat.delete();
+                        return []; // Trasformazione degenere
+                    }
+
+                    // Filtra match usando homography: riproietta punti e calcola errore
+                    const validMatches = [];
+                    for (let i = 0; i < matches.length; i++) {
+                        const kpFrame = keypointsFrame.get(matches[i].queryIdx);
+                        const kpTemplate = keypointsTemplate.get(matches[i].trainIdx);
+
+                        // Proietta punto dal frame al template usando homography
+                        const pt = cv.matFromArray(1, 1, cv.CV_32FC2, [kpFrame.pt.x, kpFrame.pt.y]);
+                        const projected = new cv.Mat();
+                        cv.perspectiveTransform(pt, projected, H);
+
+                        const projX = projected.data32F[0];
+                        const projY = projected.data32F[1];
+
+                        // Calcola errore di riproiezione
+                        const dx = projX - kpTemplate.pt.x;
+                        const dy = projY - kpTemplate.pt.y;
+                        const error = Math.sqrt(dx * dx + dy * dy);
+
+                        // Accetta solo match con errore < 5 pixel
+                        if (error < 5.0) {
+                            validMatches.push(matches[i]);
+                        }
+
+                        pt.delete();
+                        projected.delete();
+                    }
+
+                    H.delete();
+                    srcMat.delete();
+                    dstMat.delete();
+
+                    return validMatches;
+
+                } catch (error) {
+                    console.log('Homography validation error:', error);
+                    return matches; // Fallback: usa tutti i match
+                }
             }
 
             initGPS() {
