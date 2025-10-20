@@ -786,7 +786,37 @@
 
                             console.log(`Detection marker for ${template.character.name}: ${matches.length} matches, visible=${showCharacter}`);
 
-                            // POSITIONING MARKER: Cerca solo se detection matches > soglia SHOW
+                            // CREA ANCHOR SUBITO se detection marker raggiunge soglia (STOP scan)
+                            if (matches.length >= this.HYSTERESIS_SHOW && !this.positionAnchors.has(charId)) {
+                                const bearing = this.calculateBearing(
+                                    this.currentPosition.coords.latitude,
+                                    this.currentPosition.coords.longitude,
+                                    character.target_latitude,
+                                    character.target_longitude
+                                );
+                                const distance = this.calculateDistance(
+                                    this.currentPosition.coords.latitude,
+                                    this.currentPosition.coords.longitude,
+                                    character.target_latitude,
+                                    character.target_longitude
+                                );
+
+                                this.positionAnchors.set(charId, {
+                                    screenX: smoothX,
+                                    screenY: smoothY,
+                                    bearing: bearing,
+                                    distance: distance,
+                                    gpsLat: this.currentPosition.coords.latitude,
+                                    gpsLng: this.currentPosition.coords.longitude,
+                                    heading: this.currentHeading,
+                                    beta: this.currentBeta,
+                                    gamma: this.currentGamma,
+                                    createdAt: Date.now()
+                                });
+                                console.log(`🔒 Anchor created from DETECTION marker for ${character.name} at ${Math.round(distance)}m`);
+                            }
+
+                            // POSITIONING MARKER: Cerca solo se detection matches > soglia SHOW (opzionale, aggiorna anchor)
                             if (matches.length >= this.HYSTERESIS_SHOW && this.positioningMarkerTemplates.has(charId)) {
                                 console.log(`Detection passed threshold, checking positioning marker for ${template.character.name}`);
                                 const posTemplate = this.positioningMarkerTemplates.get(charId);
@@ -895,8 +925,15 @@
                                         });
                                         console.log(`✓ Positioning marker for ${template.character.name}: ${posMatches.length} matches`);
 
-                                        // Crea ancoraggio 3D persistente (se non esiste già)
-                                        if (!this.positionAnchors.has(charId)) {
+                                        // Aggiorna anchor con posizione PRECISA da positioning marker
+                                        if (this.positionAnchors.has(charId)) {
+                                            // Anchor già esiste → aggiorna con posizione più precisa
+                                            const anchor = this.positionAnchors.get(charId);
+                                            anchor.screenX = smoothPosX;
+                                            anchor.screenY = smoothPosY;
+                                            console.log(`📍 Anchor UPDATED with positioning marker for ${character.name}`);
+                                        } else {
+                                            // Crea nuovo anchor (caso raro: positioning trovato prima di detection)
                                             const bearing = this.calculateBearing(
                                                 this.currentPosition.coords.latitude,
                                                 this.currentPosition.coords.longitude,
