@@ -402,8 +402,8 @@
                 this.characterStates = new Map(); // charId -> { visible, lastSeen, position, positionHistory }
                 this.PERSISTENCE_FRAMES = 5; // Mantieni visibile per N frames dopo perdita marker
                 this.POSITION_HISTORY_SIZE = 2; // Media mobile su N posizioni (ridotto per reattività)
-                this.HYSTERESIS_SHOW = 50; // Soglia detection marker per mostrare/creare anchor
-                this.HYSTERESIS_HIDE = 30; // Soglia per nascondere
+                this.HYSTERESIS_SHOW = 100; // Soglia detection marker per mostrare/creare anchor
+                this.HYSTERESIS_HIDE = 60; // Soglia per nascondere
                 this.OUTLIER_THRESHOLD = 1.2; // Soglia outlier: 120% distanza media (più aggressivo)
 
                 // Kalman filters per smoothing sensori
@@ -913,7 +913,7 @@
                                     const posBboxHeight = posMarkerHeight + posPaddingY * 2;
 
                                     // Soglia positioning marker: richiede match di qualità
-                                    const minPositioningMatches = 40;
+                                    const minPositioningMatches = 100;
 
                                     if (posMatches.length >= minPositioningMatches) {
                                         // Solo se abbastanza match, salva il positioning marker
