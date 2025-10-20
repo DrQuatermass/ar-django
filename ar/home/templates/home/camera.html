@@ -787,7 +787,11 @@
                             console.log(`Detection marker for ${template.character.name}: ${matches.length} matches, visible=${showCharacter}`);
 
                             // CREA ANCHOR SUBITO se detection marker raggiunge soglia (STOP scan)
-                            if (matches.length >= this.HYSTERESIS_SHOW && !this.positionAnchors.has(charId)) {
+                            const shouldCreateAnchor = matches.length >= this.HYSTERESIS_SHOW;
+                            const anchorExists = this.positionAnchors.has(charId);
+                            console.log(`⚓ Anchor check: matches=${matches.length} >= ${this.HYSTERESIS_SHOW}? ${shouldCreateAnchor}, anchorExists=${anchorExists}`);
+
+                            if (shouldCreateAnchor && !anchorExists) {
                                 const bearing = this.calculateBearing(
                                     this.currentPosition.coords.latitude,
                                     this.currentPosition.coords.longitude,
