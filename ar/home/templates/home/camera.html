@@ -312,28 +312,29 @@
     <div id="debug-log"></div>
 
     <script>
+        // Inizializza stato marker PRIMA di tutto (default: visibili)
+        window.markersVisible = true;
+
         function toggleDebugLog() {
             const log = document.getElementById('debug-log');
             log.classList.toggle('visible');
         }
 
-        let markersVisible = true; // Stato visibilità marker (default: visibili)
-
         function toggleMarkers() {
-            markersVisible = !markersVisible;
+            window.markersVisible = !window.markersVisible;
             updateMarkersButton();
 
             // Mostra/nascondi immediatamente tutti i marker esistenti
             document.querySelectorAll('.marker-highlight, .keypoint-marker').forEach(el => {
-                el.style.display = markersVisible ? 'block' : 'none';
+                el.style.display = window.markersVisible ? 'block' : 'none';
             });
 
-            console.log(`Markers visibility: ${markersVisible ? 'ON' : 'OFF'}`);
+            console.log(`Markers visibility: ${window.markersVisible ? 'ON' : 'OFF'}`);
         }
 
         function updateMarkersButton() {
             const button = document.getElementById('toggle-markers');
-            if (markersVisible) {
+            if (window.markersVisible) {
                 button.textContent = '👁️ Hide Markers';
                 button.style.borderColor = '#00ff00';
             } else {
@@ -1105,8 +1106,8 @@
                 const oldKeypoints = document.querySelectorAll('.keypoint-marker');
                 oldKeypoints.forEach(k => k.remove());
 
-                // Se i marker sono nascosti, non disegnarli
-                if (!window.markersVisible) {
+                // Se i marker sono nascosti, non disegnarli (default: visibili se undefined)
+                if (window.markersVisible === false) {
                     return;
                 }
 
