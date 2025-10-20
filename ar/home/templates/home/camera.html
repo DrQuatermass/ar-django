@@ -1568,24 +1568,9 @@
                 let screenPosition;
                 let scale;
 
-                // MODALITÀ MARKER: Sistema a doppio check
-                if (character.use_marker && this.detectedMarkers.has(character.id)) {
-                    const detectionMarker = this.detectedMarkers.get(character.id);
-
-                    // CHECK 1: Detection marker decide SE mostrare (soglia 100)
-                    if (!detectionMarker.showCharacter) {
-                        // Nascondi se esiste già
-                        if (!isNew && characterDiv.style.opacity !== '0') {
-                            characterDiv.style.opacity = '0';
-                            console.log(`❌ Detection marker too weak for ${character.name} - HIDING`);
-                        }
-                        return;
-                    }
-
-                    // CHECK 2: Positioning decide DOVE mostrare
-                    // Priorità: ANCHOR (persistente) → positioning marker (real-time)
-
-                    // Se esiste ancoraggio, usa quello (calcola posizione da movimento telefono)
+                // MODALITÀ MARKER: Priorità ANCHOR → detection+positioning marker
+                if (character.use_marker) {
+                    // PRIORITÀ 1: Se esiste ancoraggio, usa quello (SKIP detection marker check)
                     if (this.positionAnchors.has(character.id)) {
                         const anchor = this.positionAnchors.get(character.id);
 
@@ -1604,45 +1589,66 @@
                         scale = screenPosition.scale;
                         console.log(`⚓ Using ANCHORED position for ${character.name}`);
                     }
-                    // Altrimenti cerca positioning marker real-time
-                    else if (this.detectedPositioningMarkers && this.detectedPositioningMarkers.has(character.id)) {
-                        const posMarker = this.detectedPositioningMarkers.get(character.id);
-                        if (posMarker.useForPositioning) {
-                            // Usa positioning marker (real-time tracking)
-                            const markerX = posMarker.screenX;
-                            const markerY = posMarker.screenY;
-                            const markerWidth = posMarker.bbox[2];
+                    // PRIORITÀ 2: Nessun anchor → serve detection marker
+                    else if (this.detectedMarkers.has(character.id)) {
+                        const detectionMarker = this.detectedMarkers.get(character.id);
 
-                            const scaleX = window.innerWidth / this.videoElement.videoWidth;
-                            const scaleY = window.innerHeight / this.videoElement.videoHeight;
+                        // Detection marker decide SE mostrare (soglia 100)
+                        if (!detectionMarker.showCharacter) {
+                            if (!isNew && characterDiv.style.opacity !== '0') {
+                                characterDiv.style.opacity = '0';
+                                console.log(`❌ Detection marker too weak for ${character.name} - HIDING`);
+                            }
+                            return;
+                        }
 
-                            const pixelsPerMeter = markerWidth * scaleX / 0.3;
-                            screenPosition = {
-                                x: (markerX * scaleX) + (character.marker_offset_x * pixelsPerMeter),
-                                y: (markerY * scaleY) + (character.marker_offset_y * pixelsPerMeter),
-                                visible: true
-                            };
+                        // Detection OK → cerca positioning marker
+                        if (this.detectedPositioningMarkers && this.detectedPositioningMarkers.has(character.id)) {
+                            const posMarker = this.detectedPositioningMarkers.get(character.id);
+                            if (posMarker.useForPositioning) {
+                                // Usa positioning marker (real-time tracking)
+                                const markerX = posMarker.screenX;
+                                const markerY = posMarker.screenY;
+                                const markerWidth = posMarker.bbox[2];
 
-                            const estimatedDistance = 1.0 / (markerWidth / this.videoElement.videoWidth);
-                            scale = (character.base_size || 1.0) * Math.max(0.5, Math.min(2, 1 / estimatedDistance));
+                                const scaleX = window.innerWidth / this.videoElement.videoWidth;
+                                const scaleY = window.innerHeight / this.videoElement.videoHeight;
 
-                            console.log(`📍 Using POSITIONING marker for ${character.name}`);
+                                const pixelsPerMeter = markerWidth * scaleX / 0.3;
+                                screenPosition = {
+                                    x: (markerX * scaleX) + (character.marker_offset_x * pixelsPerMeter),
+                                    y: (markerY * scaleY) + (character.marker_offset_y * pixelsPerMeter),
+                                    visible: true
+                                };
+
+                                const estimatedDistance = 1.0 / (markerWidth / this.videoElement.videoWidth);
+                                scale = (character.base_size || 1.0) * Math.max(0.5, Math.min(2, 1 / estimatedDistance));
+
+                                console.log(`📍 Using POSITIONING marker for ${character.name}`);
+                            } else {
+                                // Positioning marker non valido → NASCONDI
+                                if (!isNew && characterDiv.style.opacity !== '0') {
+                                    characterDiv.style.opacity = '0';
+                                    console.log(`❌ No valid positioning marker for ${character.name} - HIDING`);
+                                }
+                                return;
+                            }
+                        } else {
+                            // Nessun positioning marker → NASCONDI
+                            if (!isNew && characterDiv.style.opacity !== '0') {
+                                characterDiv.style.opacity = '0';
+                                console.log(`❌ No positioning marker for ${character.name} - HIDING`);
+                            }
+                            return;
                         }
                     } else {
-                        // Nessun positioning marker né ancoraggio → NASCONDI
+                        // Marker abilitato ma detection marker non rilevato → NASCONDI
                         if (!isNew && characterDiv.style.opacity !== '0') {
                             characterDiv.style.opacity = '0';
-                            console.log(`❌ No positioning marker or anchor for ${character.name} - HIDING`);
+                            console.log(`❌ No detection marker for ${character.name} - HIDING`);
                         }
                         return;
                     }
-                } else if (character.use_marker) {
-                    // Marker abilitato ma non rilevato - nascondi se esiste
-                    if (!isNew && characterDiv.style.opacity !== '0') {
-                        characterDiv.style.opacity = '0';
-                        console.log(`❌ Marker not detected for ${character.name} - HIDING`);
-                    }
-                    return;
                 } else {
                     // MODALITÀ GPS: Usa bearing e distanza normale (solo per character senza marker)
                     const bearing = this.calculateBearing(
