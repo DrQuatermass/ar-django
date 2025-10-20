@@ -1165,24 +1165,16 @@
                 const matches = new cv.DMatchVector();
                 bf.match(desc1, desc2, matches);
 
-                // Prima fase: Filtra per distanza Hamming
+                // Filtra per distanza Hamming
                 const goodMatches = [];
                 for (let i = 0; i < matches.size(); i++) {
                     const match = matches.get(i);
-                    if (match.distance < 50) { // Soglia più stretta per ridurre falsi positivi
+                    if (match.distance < 70) { // Soglia permissiva per variazioni luce/angolazione
                         goodMatches.push(match);
                     }
                 }
 
                 matches.delete();
-
-                // Seconda fase: Verifica geometria con homography (se abbastanza match)
-                if (goodMatches.length >= 10 && keypoints1 && keypoints2) {
-                    const validMatches = this.validateMatchesWithHomography(goodMatches, keypoints1, keypoints2);
-                    console.log(`Homography validation: ${goodMatches.length} → ${validMatches.length} matches`);
-                    return validMatches;
-                }
-
                 return goodMatches;
             }
 
