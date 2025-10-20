@@ -1622,7 +1622,7 @@
                         }
 
                         scale = screenPosition.scale;
-                        console.log(`⚓ Using ANCHORED position for ${character.name}`);
+                        console.log(`⚓ Using ANCHORED position for ${character.name} at x=${Math.round(screenPosition.x)}, y=${Math.round(screenPosition.y)}, scale=${scale.toFixed(2)}`);
                     }
                     // PRIORITÀ 2: Nessun anchor → serve detection marker
                     else if (this.detectedMarkers.has(character.id)) {
@@ -1881,14 +1881,19 @@
                 const screenHeight = window.innerHeight;
                 const FOV = this.getEffectiveFOV();
 
+                console.log(`calculateAnchoredPosition: anchor.bearing=${anchor.bearing}, currentHeading=${this.currentHeading}, FOV=${FOV}`);
+
                 // Calcola bearing relativo rispetto alla camera ATTUALE
                 let relativeBearing = (anchor.bearing - this.currentHeading + 360) % 360;
                 if (relativeBearing > 180) {
                     relativeBearing -= 360;
                 }
 
+                console.log(`relativeBearing=${relativeBearing}, FOV/2=${FOV/2}, inside=${Math.abs(relativeBearing) <= FOV/2}`);
+
                 // Verifica se dentro FOV orizzontale
                 if (Math.abs(relativeBearing) > FOV / 2) {
+                    console.log(`⚠️ Anchor outside FOV: relativeBearing=${relativeBearing} > ${FOV/2}`);
                     return null; // Fuori campo visivo
                 }
 
