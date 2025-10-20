@@ -217,6 +217,20 @@
             border: 1px solid #00ff00;
         }
 
+        #toggle-markers {
+            position: fixed;
+            bottom: 20px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-size: 10px;
+            z-index: 26;
+            cursor: pointer;
+            border: 1px solid #00ffff;
+        }
+
         .marker-highlight {
             position: absolute;
             border: 3px solid #00ff00;
@@ -294,12 +308,35 @@
 
     <div id="error-message"></div>
     <button id="toggle-debug" onclick="toggleDebugLog()">🐛 Debug</button>
+    <button id="toggle-markers" onclick="toggleMarkers()">📦 Markers</button>
     <div id="debug-log"></div>
 
     <script>
         function toggleDebugLog() {
             const log = document.getElementById('debug-log');
             log.classList.toggle('visible');
+        }
+
+        let markersVisible = true; // Stato visibilità marker (default: visibili)
+
+        function toggleMarkers() {
+            markersVisible = !markersVisible;
+            const button = document.getElementById('toggle-markers');
+
+            if (markersVisible) {
+                button.textContent = '📦 Markers';
+                button.style.borderColor = '#00ffff';
+            } else {
+                button.textContent = '📦 Hide';
+                button.style.borderColor = '#ff0000';
+            }
+
+            // Mostra/nascondi immediatamente tutti i marker esistenti
+            document.querySelectorAll('.marker-highlight, .keypoint-marker').forEach(el => {
+                el.style.display = markersVisible ? 'block' : 'none';
+            });
+
+            console.log(`Markers visibility: ${markersVisible ? 'ON' : 'OFF'}`);
         }
     </script>
 
@@ -1059,6 +1096,11 @@
                 // Rimuovi i vecchi keypoint markers
                 const oldKeypoints = document.querySelectorAll('.keypoint-marker');
                 oldKeypoints.forEach(k => k.remove());
+
+                // Se i marker sono nascosti, non disegnarli
+                if (!window.markersVisible) {
+                    return;
+                }
 
                 const scaleX = window.innerWidth / this.videoElement.videoWidth;
                 const scaleY = window.innerHeight / this.videoElement.videoHeight;
