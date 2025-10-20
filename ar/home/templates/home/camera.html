@@ -473,6 +473,7 @@
                 this.loadCharacterData();
                 this.setupCompassButton();
                 this.initMarkerDetection();
+                this.autoEnableCompass();
             }
 
             async initCamera() {
@@ -1399,6 +1400,23 @@
                 } catch (error) {
                     console.log('Errore richiesta permessi orientamento:', error);
                     document.getElementById('compass-status').textContent = 'ERROR';
+                }
+            }
+
+            async autoEnableCompass() {
+                // Auto-attiva compass su Android (non richiede permessi espliciti)
+                // iOS richiede interazione utente tramite pulsante
+                if (typeof DeviceOrientationEvent !== 'undefined') {
+                    if (typeof DeviceOrientationEvent.requestPermission !== 'function') {
+                        // Android o browser che non richiedono permessi → attiva automaticamente
+                        setTimeout(async () => {
+                            await this.initOrientation();
+                            console.log('🧭 Compass auto-enabled (Android/non-iOS)');
+                        }, 1000);
+                    } else {
+                        // iOS → richiede click utente, mostra pulsante
+                        console.log('🧭 Compass requires user permission (iOS)');
+                    }
                 }
             }
 
