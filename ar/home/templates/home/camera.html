@@ -308,7 +308,7 @@
 
     <div id="error-message"></div>
     <button id="toggle-debug" onclick="toggleDebugLog()">🐛 Debug</button>
-    <button id="toggle-markers" onclick="toggleMarkers()">📦 Markers</button>
+    <button id="toggle-markers" onclick="toggleMarkers()">👁️ Hide Markers</button>
     <div id="debug-log"></div>
 
     <script>
@@ -321,15 +321,7 @@
 
         function toggleMarkers() {
             markersVisible = !markersVisible;
-            const button = document.getElementById('toggle-markers');
-
-            if (markersVisible) {
-                button.textContent = '📦 Markers';
-                button.style.borderColor = '#00ffff';
-            } else {
-                button.textContent = '📦 Hide';
-                button.style.borderColor = '#ff0000';
-            }
+            updateMarkersButton();
 
             // Mostra/nascondi immediatamente tutti i marker esistenti
             document.querySelectorAll('.marker-highlight, .keypoint-marker').forEach(el => {
@@ -338,6 +330,22 @@
 
             console.log(`Markers visibility: ${markersVisible ? 'ON' : 'OFF'}`);
         }
+
+        function updateMarkersButton() {
+            const button = document.getElementById('toggle-markers');
+            if (markersVisible) {
+                button.textContent = '👁️ Hide Markers';
+                button.style.borderColor = '#00ff00';
+            } else {
+                button.textContent = '👁️ Show Markers';
+                button.style.borderColor = '#ff0000';
+            }
+        }
+
+        // Imposta label iniziale al caricamento
+        window.addEventListener('DOMContentLoaded', () => {
+            updateMarkersButton();
+        });
     </script>
 
     <script>
