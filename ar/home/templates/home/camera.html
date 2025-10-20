@@ -414,6 +414,11 @@
                 this.headingFilter = new KalmanFilter(0.05, 0.3);
                 this.headingInitialized = false;
 
+                // Orientamento dispositivo (tilt)
+                this.currentBeta = 0;  // Pitch (inclinazione avanti/indietro)
+                this.currentGamma = 0; // Roll (inclinazione sinistra/destra)
+                this.screenOrientation = 'portrait'; // portrait | landscape
+
                 this.initCamera();
                 this.initGPS();
                 this.loadCharacterData();
@@ -1288,39 +1293,54 @@
                 if (window.DeviceOrientationEvent) {
                     // Usa deviceorientationabsolute per il nord magnetico assoluto (iOS/Android moderni)
                     window.addEventListener('deviceorientationabsolute', (event) => {
-                        if (event.alpha !== null) {
-                            // Applica filtro Kalman per ridurre oscillazioni compass
-                            const rawHeading = event.alpha;
-                            const smoothHeading = this.filterHeading(rawHeading);
-
-                            this.currentHeading = smoothHeading;
-                            document.getElementById('compass-status').textContent = `${Math.round(smoothHeading)}°`;
-                            this.throttledUpdatePointer();
-                        }
+                        this.handleOrientationEvent(event);
                     });
 
                     // Fallback per dispositivi senza supporto assoluto
                     window.addEventListener('deviceorientation', (event) => {
-                        if (event.alpha !== null) {
-                            // Su alcuni dispositivi potrebbe essere necessario correggere l'orientamento
-                            let rawHeading = event.alpha;
-
-                            // Correzione per iOS dove l'orientamento potrebbe essere diverso
-                            if (event.webkitCompassHeading) {
-                                rawHeading = event.webkitCompassHeading;
-                            }
-
-                            // Applica filtro Kalman
-                            const smoothHeading = this.filterHeading(rawHeading);
-
-                            this.currentHeading = smoothHeading;
-                            document.getElementById('compass-status').textContent = `${Math.round(smoothHeading)}°`;
-                            this.throttledUpdatePointer();
-                        }
+                        this.handleOrientationEvent(event);
                     });
+
+                    // Monitora cambio orientamento schermo
+                    window.addEventListener('orientationchange', () => {
+                        this.updateScreenOrientation();
+                    });
+                    this.updateScreenOrientation(); // Imposta orientamento iniziale
                 } else {
                     document.getElementById('compass-status').textContent = 'NOT_SUPPORTED';
                 }
+            }
+
+            handleOrientationEvent(event) {
+                if (event.alpha !== null) {
+                    // Alpha: heading (0-360°)
+                    let rawHeading = event.alpha;
+                    if (event.webkitCompassHeading) {
+                        rawHeading = event.webkitCompassHeading;
+                    }
+                    const smoothHeading = this.filterHeading(rawHeading);
+                    this.currentHeading = smoothHeading;
+
+                    // Beta: pitch (-180 a 180°, avanti/indietro)
+                    // 0° = telefono piatto, 90° = telefono verticale verso l'alto
+                    this.currentBeta = event.beta || 0;
+
+                    // Gamma: roll (-90 a 90°, sinistra/destra)
+                    // 0° = telefono piatto, 90° = telefono inclinato a destra
+                    this.currentGamma = event.gamma || 0;
+
+                    document.getElementById('compass-status').textContent =
+                        `${Math.round(smoothHeading)}° β:${Math.round(this.currentBeta)}° γ:${Math.round(this.currentGamma)}°`;
+
+                    this.throttledUpdatePointer();
+                }
+            }
+
+            updateScreenOrientation() {
+                // Determina se portrait o landscape
+                const angle = window.orientation || 0;
+                this.screenOrientation = (Math.abs(angle) === 90) ? 'landscape' : 'portrait';
+                console.log(`Screen orientation changed: ${this.screenOrientation} (${angle}°)`);
             }
 
             throttledUpdatePointer() {
@@ -1672,12 +1692,26 @@
                 return (θ*180/Math.PI + 360) % 360;
             }
 
+            getEffectiveFOV() {
+                // FOV orizzontale della camera (tipico smartphone)
+                const baseFOV = 70;
+
+                // Aspect ratio: portrait = 9:16 (~0.56), landscape = 16:9 (~1.78)
+                const aspectRatio = window.innerWidth / window.innerHeight;
+
+                // In landscape, FOV orizzontale aumenta, in portrait diminuisce
+                // Formula approssimata: FOV_eff = FOV_base * sqrt(aspect)
+                const effectiveFOV = baseFOV * Math.sqrt(Math.max(0.5, Math.min(2, aspectRatio)));
+
+                return effectiveFOV;
+            }
+
             worldToScreen(bearing, distance, character) {
                 const screenWidth = window.innerWidth;
                 const screenHeight = window.innerHeight;
 
-                // Campo visivo della fotocamera (tipicamente 60-80 gradi per smartphone)
-                const FOV = 70;
+                // Campo visivo dinamico basato su orientamento
+                const FOV = this.getEffectiveFOV();
 
                 // Calcola il bearing relativo alla direzione della fotocamera
                 let relativeBearing = (bearing - this.currentHeading + 360) % 360;
@@ -1687,7 +1721,7 @@
                     relativeBearing -= 360;
                 }
 
-                // Controlla se il personaggio è nel campo visivo
+                // Controlla se il personaggio è nel campo visivo orizzontale
                 if (Math.abs(relativeBearing) > FOV / 2) {
                     // Fuori dal campo visivo - non mostrare
                     return null;
@@ -1698,15 +1732,20 @@
                 // -FOV/2 = sinistra, +FOV/2 = destra
                 const x = screenWidth / 2 + (relativeBearing / FOV) * screenWidth;
 
-                // Calcola posizione verticale considerando altitudine e height_offset
+                // Calcola posizione verticale considerando altitudine, height_offset E tilt del telefono
                 let y = screenHeight * 0.5; // Centro verticale di default
+
+                // Compensazione tilt telefono (beta = pitch)
+                // Beta: 0° = piatto, 90° = verticale, -90° = capovolto
+                // Quando alzi il telefono (beta aumenta), gli oggetti devono scendere sullo schermo
+                const tiltCompensation = (this.currentBeta / 90) * (screenHeight * 0.3);
 
                 // Se abbiamo dati di altitudine GPS
                 if (this.currentPosition.coords.altitude !== null && character.altitude !== 0) {
                     const altitudeDiff = character.altitude - this.currentPosition.coords.altitude + character.height_offset;
                     // Converti differenza altitudine in offset verticale (negativo = più in alto)
                     const altitudeOffset = -altitudeDiff * 2; // Pixel per metro
-                    y = screenHeight * 0.5 + altitudeOffset;
+                    y = screenHeight * 0.5 + altitudeOffset + tiltCompensation;
                 } else {
                     // Fallback: usa distanza per calcolare posizione verticale
                     // Più vicino = più in basso (effetto prospettico)
@@ -1716,11 +1755,11 @@
                     const heightAdjustment = character.height_offset * -3; // Pixel per metro
 
                     if (character.display_mode === 'floating') {
-                        y = screenHeight * (0.3 + verticalOffset * 0.1) + heightAdjustment;
+                        y = screenHeight * (0.3 + verticalOffset * 0.1) + heightAdjustment + tiltCompensation;
                     } else if (character.display_mode === 'wall') {
-                        y = screenHeight * 0.4 + heightAdjustment;
+                        y = screenHeight * 0.4 + heightAdjustment + tiltCompensation;
                     } else { // standing
-                        y = screenHeight * (0.5 + verticalOffset * 0.15) + heightAdjustment;
+                        y = screenHeight * (0.5 + verticalOffset * 0.15) + heightAdjustment + tiltCompensation;
                     }
                 }
 
@@ -1749,13 +1788,6 @@
         // Avvia l'applicazione AR quando la pagina è caricata
         document.addEventListener('DOMContentLoaded', () => {
             new ARCamera();
-        });
-
-        // Gestisci il cambio di orientamento
-        window.addEventListener('orientationchange', () => {
-            setTimeout(() => {
-                location.reload();
-            }, 500);
         });
     </script>
 </body>
