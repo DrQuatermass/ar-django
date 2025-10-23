@@ -835,41 +835,7 @@
 
                             console.log(`Detection marker for ${template.character.name}: ${matches.length} matches, visible=${showCharacter}`);
 
-                            // CREA ANCHOR SUBITO se detection marker raggiunge soglia (STOP scan)
-                            const shouldCreateAnchor = matches.length >= this.HYSTERESIS_SHOW;
-                            const anchorExists = this.positionAnchors.has(charId);
-                            console.log(`⚓ Anchor check: matches=${matches.length} >= ${this.HYSTERESIS_SHOW}? ${shouldCreateAnchor}, anchorExists=${anchorExists}`);
-
-                            if (shouldCreateAnchor && !anchorExists) {
-                                const bearing = this.calculateBearing(
-                                    this.currentPosition.coords.latitude,
-                                    this.currentPosition.coords.longitude,
-                                    character.target_latitude,
-                                    character.target_longitude
-                                );
-                                const distance = this.calculateDistance(
-                                    this.currentPosition.coords.latitude,
-                                    this.currentPosition.coords.longitude,
-                                    character.target_latitude,
-                                    character.target_longitude
-                                );
-
-                                this.positionAnchors.set(charId, {
-                                    screenX: smoothX,
-                                    screenY: smoothY,
-                                    bearing: bearing,
-                                    distance: distance,
-                                    gpsLat: this.currentPosition.coords.latitude,
-                                    gpsLng: this.currentPosition.coords.longitude,
-                                    heading: this.currentHeading,
-                                    beta: this.currentBeta,
-                                    gamma: this.currentGamma,
-                                    createdAt: Date.now()
-                                });
-                                console.log(`🔒 Anchor created from DETECTION marker for ${character.name} at ${Math.round(distance)}m`);
-                            }
-
-                            // POSITIONING MARKER: Cerca solo se detection matches > soglia SHOW (opzionale, aggiorna anchor)
+                            // POSITIONING MARKER: Cerca solo se detection matches > soglia SHOW
                             if (matches.length >= this.HYSTERESIS_SHOW && this.positioningMarkerTemplates.has(charId)) {
                                 console.log(`Detection passed threshold, checking positioning marker for ${template.character.name}`);
                                 const posTemplate = this.positioningMarkerTemplates.get(charId);
@@ -975,8 +941,8 @@
                                     const posBboxWidth = posMarkerWidth + posPaddingX * 2;
                                     const posBboxHeight = posMarkerHeight + posPaddingY * 2;
 
-                                    // Soglia positioning marker: richiede match di qualità
-                                    const minPositioningMatches = 100;
+                                    // Soglia positioning marker: ridotta per ratio test + homography (filtri più stringenti)
+                                    const minPositioningMatches = 30;
 
                                     if (posMatches.length >= minPositioningMatches) {
                                         // Solo se abbastanza match, salva il positioning marker
@@ -992,29 +958,35 @@
                                         });
                                         console.log(`✓ Positioning marker for ${template.character.name}: ${posMatches.length} matches`);
 
-                                        // Aggiorna anchor con posizione PRECISA da positioning marker
+                                        // CREA/AGGIORNA anchor con posizione PRECISA da positioning marker
+                                        const bearing = this.calculateBearing(
+                                            this.currentPosition.coords.latitude,
+                                            this.currentPosition.coords.longitude,
+                                            character.target_latitude,
+                                            character.target_longitude
+                                        );
+                                        const distance = this.calculateDistance(
+                                            this.currentPosition.coords.latitude,
+                                            this.currentPosition.coords.longitude,
+                                            character.target_latitude,
+                                            character.target_longitude
+                                        );
+
                                         if (this.positionAnchors.has(charId)) {
-                                            // Anchor già esiste → aggiorna con posizione più precisa
+                                            // Anchor già esiste → aggiorna completamente
                                             const anchor = this.positionAnchors.get(charId);
-                                            console.log(`📍 Anchor BEFORE update: screenX=${anchor.screenX.toFixed(1)}, screenY=${anchor.screenY.toFixed(1)}`);
+                                            console.log(`📍 Updating anchor: old=(${anchor.screenX.toFixed(1)},${anchor.screenY.toFixed(1)}) → new=(${smoothPosX.toFixed(1)},${smoothPosY.toFixed(1)})`);
                                             anchor.screenX = smoothPosX;
                                             anchor.screenY = smoothPosY;
-                                            console.log(`📍 Anchor AFTER update: screenX=${anchor.screenX.toFixed(1)}, screenY=${anchor.screenY.toFixed(1)}`);
+                                            anchor.bearing = bearing;
+                                            anchor.distance = distance;
+                                            anchor.gpsLat = this.currentPosition.coords.latitude;
+                                            anchor.gpsLng = this.currentPosition.coords.longitude;
+                                            anchor.heading = this.currentHeading;
+                                            anchor.beta = this.currentBeta;
+                                            anchor.gamma = this.currentGamma;
                                         } else {
-                                            // Crea nuovo anchor (caso raro: positioning trovato prima di detection)
-                                            const bearing = this.calculateBearing(
-                                                this.currentPosition.coords.latitude,
-                                                this.currentPosition.coords.longitude,
-                                                character.target_latitude,
-                                                character.target_longitude
-                                            );
-                                            const distance = this.calculateDistance(
-                                                this.currentPosition.coords.latitude,
-                                                this.currentPosition.coords.longitude,
-                                                character.target_latitude,
-                                                character.target_longitude
-                                            );
-
+                                            // Crea nuovo anchor dal positioning marker
                                             this.positionAnchors.set(charId, {
                                                 screenX: smoothPosX,
                                                 screenY: smoothPosY,
@@ -1027,7 +999,7 @@
                                                 gamma: this.currentGamma,
                                                 createdAt: Date.now()
                                             });
-                                            console.log(`🔒 Anchor created for ${character.name} at bearing=${Math.round(bearing)}° distance=${Math.round(distance)}m`);
+                                            console.log(`🔒 Anchor created from POSITIONING marker for ${character.name} at ${Math.round(distance)}m`);
                                         }
                                     } else {
                                         // Match insufficienti → rimuovi positioning marker dalla Map
