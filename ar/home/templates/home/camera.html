@@ -448,7 +448,7 @@
                 this.characterStates = new Map(); // charId -> { visible, lastSeen, position, positionHistory }
                 this.PERSISTENCE_FRAMES = 5; // Mantieni visibile per N frames dopo perdita marker
                 this.POSITION_HISTORY_SIZE = 2; // Media mobile su N posizioni (ridotto per reattività)
-                this.HYSTERESIS_SHOW = 100; // Soglia detection marker per mostrare/creare anchor
+                this.HYSTERESIS_SHOW = 80; // Soglia detection marker per cercare positioning marker
                 this.HYSTERESIS_HIDE = 60; // Soglia per nascondere
                 this.OUTLIER_THRESHOLD = 1.8; // Soglia outlier: 180% distanza media
                 this.EMA_ALPHA = 0.3; // Peso per EMA smoothing posizione finale (0=smooth, 1=reattivo)
@@ -837,21 +837,25 @@
 
                             // POSITIONING MARKER: Cerca solo se detection matches > soglia SHOW
                             if (matches.length >= this.HYSTERESIS_SHOW && this.positioningMarkerTemplates.has(charId)) {
-                                console.log(`Detection passed threshold, checking positioning marker for ${template.character.name}`);
+                                console.log(`✅ Detection passed threshold (${matches.length} >= ${this.HYSTERESIS_SHOW}), checking positioning marker for ${template.character.name}`);
                                 const posTemplate = this.positioningMarkerTemplates.get(charId);
                                 // Usa ratio test di Lowe per maggiore precisione nel positioning
                                 let posMatches = this.matchFeatures(descriptors, posTemplate.descriptors, keypoints, posTemplate.keypoints, true);
+                                console.log(`🔍 Positioning marker raw matches (ratio test): ${posMatches.length}`);
 
                                 // VALIDAZIONE HOMOGRAPHY: Rimuove outliers geometrici
                                 if (posMatches.length >= 10) {
+                                    const beforeHomography = posMatches.length;
                                     const validatedMatches = this.validateMatchesWithHomography(posMatches, keypoints, posTemplate.keypoints);
                                     if (validatedMatches.length > 0) {
                                         posMatches = validatedMatches;
-                                        console.log(`✓ Homography validated positioning matches: ${validatedMatches.length}/${posMatches.length} kept`);
+                                        console.log(`✓ Homography: ${validatedMatches.length}/${beforeHomography} kept (${beforeHomography - validatedMatches.length} outliers removed)`);
                                     } else {
-                                        console.log(`⚠️ Homography rejected all positioning matches`);
+                                        console.log(`⚠️ Homography rejected all ${beforeHomography} positioning matches`);
                                         posMatches = []; // Nessun match valido
                                     }
+                                } else {
+                                    console.log(`⚠️ Too few matches for homography: ${posMatches.length} < 10`);
                                 }
 
                                 if (posMatches.length > 0) {
