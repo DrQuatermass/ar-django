@@ -839,9 +839,9 @@
                             if (matches.length >= this.HYSTERESIS_SHOW && this.positioningMarkerTemplates.has(charId)) {
                                 console.log(`✅ Detection passed threshold (${matches.length} >= ${this.HYSTERESIS_SHOW}), checking positioning marker for ${template.character.name}`);
                                 const posTemplate = this.positioningMarkerTemplates.get(charId);
-                                // Usa ratio test di Lowe per maggiore precisione nel positioning
-                                let posMatches = this.matchFeatures(descriptors, posTemplate.descriptors, keypoints, posTemplate.keypoints, true);
-                                console.log(`🔍 Positioning marker raw matches (ratio test): ${posMatches.length}`);
+                                // Usa matching semplice (homography filtrerà gli outliers)
+                                let posMatches = this.matchFeatures(descriptors, posTemplate.descriptors, keypoints, posTemplate.keypoints, false);
+                                console.log(`🔍 Positioning marker raw matches: ${posMatches.length}`);
 
                                 // VALIDAZIONE HOMOGRAPHY: Rimuove outliers geometrici
                                 if (posMatches.length >= 10) {
@@ -945,8 +945,8 @@
                                     const posBboxWidth = posMarkerWidth + posPaddingX * 2;
                                     const posBboxHeight = posMarkerHeight + posPaddingY * 2;
 
-                                    // Soglia positioning marker: ridotta per ratio test + homography (filtri più stringenti)
-                                    const minPositioningMatches = 30;
+                                    // Soglia positioning marker: molto bassa perché ratio test + homography filtrano già
+                                    const minPositioningMatches = 10;
 
                                     if (posMatches.length >= minPositioningMatches) {
                                         // Solo se abbastanza match, salva il positioning marker
@@ -1213,20 +1213,20 @@
                     bf.knnMatch(desc1, desc2, matches, 2); // Trova i 2 migliori match
 
                     const goodMatches = [];
-                    const ratioThreshold = 0.75; // Match valido se 25% migliore del secondo
+                    const ratioThreshold = 0.85; // Soglia rilassata (85%) per positioning marker
 
                     for (let i = 0; i < matches.size(); i++) {
                         const match = matches.get(i);
                         if (match.size() >= 2) {
                             const m1 = match.get(0);
                             const m2 = match.get(1);
-                            // Ratio test: primo match deve essere significativamente migliore
-                            if (m1.distance < ratioThreshold * m2.distance && m1.distance < 50) {
+                            // Ratio test: primo match deve essere migliore del secondo
+                            if (m1.distance < ratioThreshold * m2.distance && m1.distance < 70) {
                                 goodMatches.push(m1);
                             }
                         } else if (match.size() === 1) {
                             const m = match.get(0);
-                            if (m.distance < 50) {
+                            if (m.distance < 70) {
                                 goodMatches.push(m);
                             }
                         }
