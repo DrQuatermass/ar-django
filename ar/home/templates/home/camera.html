@@ -450,7 +450,8 @@
                 this.POSITION_HISTORY_SIZE = 2; // Media mobile su N posizioni (ridotto per reattività)
                 this.HYSTERESIS_SHOW = 100; // Soglia detection marker per mostrare/creare anchor
                 this.HYSTERESIS_HIDE = 60; // Soglia per nascondere
-                this.OUTLIER_THRESHOLD = 1.2; // Soglia outlier: 120% distanza media (più aggressivo)
+                this.OUTLIER_THRESHOLD = 1.8; // Soglia outlier: 180% distanza media
+                this.EMA_ALPHA = 0.3; // Peso per EMA smoothing posizione finale (0=smooth, 1=reattivo)
 
                 // Kalman filters per smoothing sensori
                 // GPS: process noise basso (cambia lentamente), measurement noise alto (GPS inaccurato)
@@ -576,7 +577,8 @@
                                 const posGray = new cv.Mat();
                                 cv.cvtColor(posMat, posGray, cv.COLOR_RGBA2GRAY);
 
-                                const posOrb = new cv.ORB(500);
+                                // Aumentato a 2000 features per maggiore precisione nel positioning
+                                const posOrb = new cv.ORB(2000);
                                 const posKeypoints = new cv.KeyPointVector();
                                 const posDescriptors = new cv.Mat();
                                 posOrb.detectAndCompute(posGray, new cv.Mat(), posKeypoints, posDescriptors);
@@ -871,7 +873,20 @@
                             if (matches.length >= this.HYSTERESIS_SHOW && this.positioningMarkerTemplates.has(charId)) {
                                 console.log(`Detection passed threshold, checking positioning marker for ${template.character.name}`);
                                 const posTemplate = this.positioningMarkerTemplates.get(charId);
-                                const posMatches = this.matchFeatures(descriptors, posTemplate.descriptors, keypoints, posTemplate.keypoints);
+                                // Usa ratio test di Lowe per maggiore precisione nel positioning
+                                let posMatches = this.matchFeatures(descriptors, posTemplate.descriptors, keypoints, posTemplate.keypoints, true);
+
+                                // VALIDAZIONE HOMOGRAPHY: Rimuove outliers geometrici
+                                if (posMatches.length >= 10) {
+                                    const validatedMatches = this.validateMatchesWithHomography(posMatches, keypoints, posTemplate.keypoints);
+                                    if (validatedMatches.length > 0) {
+                                        posMatches = validatedMatches;
+                                        console.log(`✓ Homography validated positioning matches: ${validatedMatches.length}/${posMatches.length} kept`);
+                                    } else {
+                                        console.log(`⚠️ Homography rejected all positioning matches`);
+                                        posMatches = []; // Nessun match valido
+                                    }
+                                }
 
                                 if (posMatches.length > 0) {
                                     // PRIMA PASSATA: Calcola centro grezzo
@@ -1210,26 +1225,56 @@
                 }
             }
 
-            matchFeatures(desc1, desc2, keypoints1, keypoints2) {
+            matchFeatures(desc1, desc2, keypoints1, keypoints2, useRatioTest = false) {
                 if (!desc1 || !desc2 || desc1.rows === 0 || desc2.rows === 0) {
                     return [];
                 }
 
-                const bf = new cv.BFMatcher(cv.NORM_HAMMING, true);
-                const matches = new cv.DMatchVector();
-                bf.match(desc1, desc2, matches);
+                if (useRatioTest) {
+                    // Ratio test di Lowe (più accurato per positioning marker)
+                    const bf = new cv.BFMatcher(cv.NORM_HAMMING, false); // crossCheck=false per knnMatch
+                    const matches = new cv.DMatchVectorVector();
+                    bf.knnMatch(desc1, desc2, matches, 2); // Trova i 2 migliori match
 
-                // Filtra per distanza Hamming
-                const goodMatches = [];
-                for (let i = 0; i < matches.size(); i++) {
-                    const match = matches.get(i);
-                    if (match.distance < 70) { // Soglia permissiva per variazioni luce/angolazione
-                        goodMatches.push(match);
+                    const goodMatches = [];
+                    const ratioThreshold = 0.75; // Match valido se 25% migliore del secondo
+
+                    for (let i = 0; i < matches.size(); i++) {
+                        const match = matches.get(i);
+                        if (match.size() >= 2) {
+                            const m1 = match.get(0);
+                            const m2 = match.get(1);
+                            // Ratio test: primo match deve essere significativamente migliore
+                            if (m1.distance < ratioThreshold * m2.distance && m1.distance < 50) {
+                                goodMatches.push(m1);
+                            }
+                        } else if (match.size() === 1) {
+                            const m = match.get(0);
+                            if (m.distance < 50) {
+                                goodMatches.push(m);
+                            }
+                        }
                     }
-                }
 
-                matches.delete();
-                return goodMatches;
+                    matches.delete();
+                    return goodMatches;
+                } else {
+                    // Matching semplice con threshold (per detection marker)
+                    const bf = new cv.BFMatcher(cv.NORM_HAMMING, true);
+                    const matches = new cv.DMatchVector();
+                    bf.match(desc1, desc2, matches);
+
+                    const goodMatches = [];
+                    for (let i = 0; i < matches.size(); i++) {
+                        const match = matches.get(i);
+                        if (match.distance < 70) { // Soglia permissiva per detection
+                            goodMatches.push(match);
+                        }
+                    }
+
+                    matches.delete();
+                    return goodMatches;
+                }
             }
 
             validateMatchesWithHomography(matches, keypointsFrame, keypointsTemplate) {
@@ -1788,10 +1833,33 @@
                 const baseSize = 80;
                 const imgSize = baseSize * scale;
 
-                // AGGIORNA posizione (le transizioni CSS renderanno il movimento smooth)
-                console.log(`🎨 Applying position to DOM: left=${screenPosition.x.toFixed(1)}px, top=${screenPosition.y.toFixed(1)}px with translate(-50%, -50%)`);
-                characterDiv.style.left = screenPosition.x + 'px';
-                characterDiv.style.top = screenPosition.y + 'px';
+                // SMOOTHING EMA: Applica Exponential Moving Average per ridurre jitter
+                if (!this.characterStates.has(character.id)) {
+                    this.characterStates.set(character.id, {
+                        visible: false,
+                        lastSeen: 0,
+                        positionHistory: [],
+                        smoothedPosition: { x: screenPosition.x, y: screenPosition.y }
+                    });
+                }
+
+                const charState = this.characterStates.get(character.id);
+                if (!charState.smoothedPosition) {
+                    // Prima volta: inizializza con posizione corrente
+                    charState.smoothedPosition = { x: screenPosition.x, y: screenPosition.y };
+                } else {
+                    // Applica EMA: new_smooth = alpha * new_value + (1-alpha) * old_smooth
+                    charState.smoothedPosition.x = this.EMA_ALPHA * screenPosition.x + (1 - this.EMA_ALPHA) * charState.smoothedPosition.x;
+                    charState.smoothedPosition.y = this.EMA_ALPHA * screenPosition.y + (1 - this.EMA_ALPHA) * charState.smoothedPosition.y;
+                }
+
+                const smoothedX = charState.smoothedPosition.x;
+                const smoothedY = charState.smoothedPosition.y;
+
+                // AGGIORNA posizione con valori smoothed (le transizioni CSS renderanno il movimento smooth)
+                console.log(`🎨 Applying SMOOTHED position to DOM: raw=(${screenPosition.x.toFixed(1)}, ${screenPosition.y.toFixed(1)}) → smooth=(${smoothedX.toFixed(1)}, ${smoothedY.toFixed(1)})`);
+                characterDiv.style.left = smoothedX + 'px';
+                characterDiv.style.top = smoothedY + 'px';
                 characterDiv.style.transform = 'translate(-50%, -50%)';
 
                 // Aggiorna contenuto solo se necessario (per evitare flickering)
