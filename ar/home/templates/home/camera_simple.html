@@ -524,6 +524,7 @@
 
             updateCharacterPosition(character, position, matchCount) {
                 let charDiv = this.overlay.querySelector(`[data-character-id="${character.id}"]`);
+                let img;
 
                 if (!charDiv) {
                     // Crea nuovo elemento personaggio
@@ -531,30 +532,41 @@
                     charDiv.className = 'ar-character';
                     charDiv.setAttribute('data-character-id', character.id);
 
-                    const img = document.createElement('img');
+                    img = document.createElement('img');
                     img.src = character.character_image;
                     img.alt = character.name || 'Character';
 
                     charDiv.appendChild(img);
                     this.overlay.appendChild(charDiv);
+                } else {
+                    img = charDiv.querySelector('img');
                 }
 
-                // Calcola dimensione basata su match quality
+                // Calcola larghezza basata su match quality
                 const baseSize = character.base_size || 200;
-                const size = Math.max(100, Math.min(400, baseSize * (1 + matchCount / 100)));
+                const width = Math.max(100, Math.min(400, baseSize * (1 + matchCount / 100)));
+
+                // Calcola altezza proporzionale all'aspect ratio dell'immagine
+                // Se l'immagine non è ancora caricata, usa ratio 1:1 temporaneo
+                let height = width;
+                if (img.naturalHeight > 0 && img.naturalWidth > 0) {
+                    const aspectRatio = img.naturalHeight / img.naturalWidth;
+                    height = width * aspectRatio;
+                }
 
                 // Applica offset del marker (se configurato)
                 const offsetX = character.marker_offset_x || 0;
                 const offsetY = character.marker_offset_y || 0;
 
-                const finalX = position.x + offsetX - (size / 2);
-                const finalY = position.y + offsetY - (size / 2);
+                // Centra il personaggio sul marker
+                const finalX = position.x + offsetX - (width / 2);
+                const finalY = position.y + offsetY - (height / 2);
 
-                // Aggiorna posizione e dimensione
+                // Aggiorna posizione e dimensione - SEMPRE, per tracking continuo
                 charDiv.style.left = finalX + 'px';
                 charDiv.style.top = finalY + 'px';
-                charDiv.style.width = size + 'px';
-                charDiv.style.height = size + 'px';
+                charDiv.style.width = width + 'px';
+                charDiv.style.height = height + 'px';
                 charDiv.style.opacity = '1';
                 charDiv.style.display = 'block';
             }
