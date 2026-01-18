@@ -1701,94 +1701,75 @@
                 let screenPosition;
                 let scale;
 
-                // MODALITÀ MARKER: Priorità ANCHOR → detection+positioning marker
+                // MODALITÀ MARKER: Priorità POSITIONING MARKER real-time → anchor fallback → detection fallback
                 if (character.use_marker) {
-                    // PRIORITÀ 1: Se esiste ancoraggio, usa quello (SKIP detection marker check)
-                    if (this.positionAnchors.has(character.id)) {
-                        const anchor = this.positionAnchors.get(character.id);
+                    // PRIORITÀ 1: Positioning marker REAL-TIME (massima precisione quando visibile)
+                    if (this.detectedPositioningMarkers && this.detectedPositioningMarkers.has(character.id)) {
+                        const posMarker = this.detectedPositioningMarkers.get(character.id);
 
-                        // Calcola posizione schermo dall'ancoraggio usando movimenti del telefono
-                        screenPosition = this.calculateAnchoredPosition(anchor, character);
+                        if (posMarker.useForPositioning) {
+                            // Usa positioning marker coordinates (real-time tracking pixel-perfect)
+                            const markerX = posMarker.screenX;
+                            const markerY = posMarker.screenY;
+                            const markerWidth = posMarker.bbox[2];
 
-                        if (!screenPosition || !screenPosition.visible) {
-                            // Ancoraggio fuori FOV - nascondi
-                            if (!isNew && characterDiv.style.opacity !== '0') {
-                                characterDiv.style.opacity = '0';
-                                console.log(`⚓ Anchor for ${character.name} outside FOV - HIDING`);
-                            }
-                            return;
+                            const scaleX = window.innerWidth / this.videoElement.videoWidth;
+                            const scaleY = window.innerHeight / this.videoElement.videoHeight;
+
+                            const pixelsPerMeter = markerWidth * scaleX / 0.3;
+                            screenPosition = {
+                                x: (markerX * scaleX) + (character.marker_offset_x * pixelsPerMeter),
+                                y: (markerY * scaleY) + (character.marker_offset_y * pixelsPerMeter),
+                                visible: true
+                            };
+
+                            const estimatedDistance = 1.0 / (markerWidth / this.videoElement.videoWidth);
+                            const targetSizeAt5m = window.innerWidth / 3;
+                            const baseSize = 80;
+                            const scaleAt5m = targetSizeAt5m / baseSize;
+                            const baseScale = Math.max(0.2, Math.min(10, (5 / estimatedDistance) * scaleAt5m));
+                            scale = baseScale * (character.base_size || 1.0);
+
+                            console.log(`🎯 POSITIONING MARKER real-time for ${character.name}: matches=${posMarker.matches}, pos=(${Math.round(screenPosition.x)},${Math.round(screenPosition.y)}), scale=${scale.toFixed(2)}`);
                         }
-
-                        scale = screenPosition.scale;
-                        console.log(`⚓ Using ANCHORED position for ${character.name} at x=${Math.round(screenPosition.x)}, y=${Math.round(screenPosition.y)}, scale=${scale.toFixed(2)}`);
                     }
-                    // PRIORITÀ 2: Nessun anchor → serve detection marker
-                    else if (this.detectedMarkers.has(character.id)) {
+                    // PRIORITÀ 2: Anchor FALLBACK (quando positioning marker perso ma detection OK)
+                    else if (this.positionAnchors.has(character.id) && this.detectedMarkers.has(character.id)) {
                         const detectionMarker = this.detectedMarkers.get(character.id);
 
-                        // Detection marker decide SE mostrare (soglia 100)
-                        if (!detectionMarker.showCharacter) {
+                        // Verifica che detection marker sia ancora valido
+                        if (detectionMarker.showCharacter) {
+                            const anchor = this.positionAnchors.get(character.id);
+
+                            // Calcola posizione schermo dall'ancoraggio usando movimenti del telefono
+                            screenPosition = this.calculateAnchoredPosition(anchor, character);
+
+                            if (!screenPosition || !screenPosition.visible) {
+                                // Ancoraggio fuori FOV - nascondi
+                                if (!isNew && characterDiv.style.opacity !== '0') {
+                                    characterDiv.style.opacity = '0';
+                                    console.log(`⚓ Anchor for ${character.name} outside FOV - HIDING`);
+                                }
+                                return;
+                            }
+
+                            scale = screenPosition.scale;
+                            console.log(`⚓ Using ANCHOR fallback for ${character.name} (positioning marker lost): pos=(${Math.round(screenPosition.x)},${Math.round(screenPosition.y)}), scale=${scale.toFixed(2)}`);
+                        } else {
+                            // Detection marker troppo debole
                             if (!isNew && characterDiv.style.opacity !== '0') {
                                 characterDiv.style.opacity = '0';
                                 console.log(`❌ Detection marker too weak for ${character.name} - HIDING`);
                             }
                             return;
                         }
-
-                        // Detection OK → cerca positioning marker
-                        if (this.detectedPositioningMarkers && this.detectedPositioningMarkers.has(character.id)) {
-                            const posMarker = this.detectedPositioningMarkers.get(character.id);
-                            if (posMarker.useForPositioning) {
-                                // Usa positioning marker (real-time tracking)
-                                const markerX = posMarker.screenX;
-                                const markerY = posMarker.screenY;
-                                const markerWidth = posMarker.bbox[2];
-
-                                const scaleX = window.innerWidth / this.videoElement.videoWidth;
-                                const scaleY = window.innerHeight / this.videoElement.videoHeight;
-
-                                console.log(`📐 Scale factors: scaleX=${scaleX.toFixed(3)}, scaleY=${scaleY.toFixed(3)} (screen: ${window.innerWidth}×${window.innerHeight})`);
-                                console.log(`📐 Marker position scaled to SCREEN: x=${(markerX * scaleX).toFixed(1)}, y=${(markerY * scaleY).toFixed(1)}`);
-
-                                const pixelsPerMeter = markerWidth * scaleX / 0.3;
-                                screenPosition = {
-                                    x: (markerX * scaleX) + (character.marker_offset_x * pixelsPerMeter),
-                                    y: (markerY * scaleY) + (character.marker_offset_y * pixelsPerMeter),
-                                    visible: true
-                                };
-                                console.log(`📐 Final screen position with offset: x=${screenPosition.x.toFixed(1)}, y=${screenPosition.y.toFixed(1)}`);
-
-                                const estimatedDistance = 1.0 / (markerWidth / this.videoElement.videoWidth);
-
-                                // Usa la stessa formula di scaling: 1/3 schermo a 5m
-                                const targetSizeAt5m = window.innerWidth / 3;
-                                const baseSize = 80;
-                                const scaleAt5m = targetSizeAt5m / baseSize;
-                                const baseScale = Math.max(0.2, Math.min(10, (5 / estimatedDistance) * scaleAt5m));
-                                scale = baseScale * (character.base_size || 1.0);
-
-                                console.log(`📍 Using POSITIONING marker for ${character.name} at distance=${estimatedDistance.toFixed(1)}m, scale=${scale.toFixed(2)}`);
-                            } else {
-                                // Positioning marker non valido → NASCONDI
-                                if (!isNew && characterDiv.style.opacity !== '0') {
-                                    characterDiv.style.opacity = '0';
-                                    console.log(`❌ No valid positioning marker for ${character.name} - HIDING`);
-                                }
-                                return;
-                            }
-                        } else {
-                            // Nessun positioning marker → NASCONDI
-                            if (!isNew && characterDiv.style.opacity !== '0') {
-                                characterDiv.style.opacity = '0';
-                                console.log(`❌ No positioning marker for ${character.name} - HIDING`);
-                            }
-                            return;
-                        }
-                    } else {
-                        // Marker abilitato ma detection marker non rilevato → NASCONDI
+                    }
+                    // PRIORITÀ 3: Nessun positioning né anchor → NASCONDI
+                    else {
+                        // Marker abilitato ma né positioning né anchor disponibili → NASCONDI
                         if (!isNew && characterDiv.style.opacity !== '0') {
                             characterDiv.style.opacity = '0';
-                            console.log(`❌ No detection marker for ${character.name} - HIDING`);
+                            console.log(`❌ No positioning marker or anchor for ${character.name} - HIDING`);
                         }
                         return;
                     }
