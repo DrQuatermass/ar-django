@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <title>AR Camera - Simple Marker Mode</title>
+    {% load static %}
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background: #000;
+            overflow: hidden;
+        }
+
+        #camera-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #camera-stream {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        #ar-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .ar-character {
+            position: absolute;
+            transition: left 0.15s ease-out, top 0.15s ease-out, transform 0.15s ease-out;
+            will-change: transform;
+        }
+
+        .ar-character img {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        #controls {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            z-index: 20;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 11px;
+            max-width: 250px;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 3px 0;
+        }
+
+        .info-label {
+            font-weight: bold;
+        }
+
+        .info-value {
+            color: #00ff00;
+        }
+
+        #error-message {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            background: rgba(255, 0, 0, 0.9);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            z-index: 30;
+            display: none;
+        }
+
+        #loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            color: white;
+        }
+
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid white;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="loading-overlay">
+        <div class="spinner"></div>
+        <p id="loading-text">Caricamento OpenCV...</p>
+    </div>
+
+    <div id="camera-container">
+        <video id="camera-stream" autoplay playsinline></video>
+        <div id="ar-overlay"></div>
+    </div>
+
+    <div id="controls">
+        <div class="info-row">
+            <span class="info-label">OpenCV:</span>
+            <span class="info-value" id="opencv-status">Caricamento...</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Personaggi:</span>
+            <span class="info-value" id="char-count">0</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Marker rilevati:</span>
+            <span class="info-value" id="marker-detected">0</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">FPS:</span>
+            <span class="info-value" id="fps-display">0</span>
+        </div>
+    </div>
+
+    <div id="error-message"></div>
+
+    <script>
+        let cv = null;
+        let opencvReady = false;
+
+        // Callback quando OpenCV è pronto
+        function onOpenCvReady() {
+            console.log('onOpenCvReady chiamato, cv type:', typeof cv);
+            if (typeof cv !== 'undefined' && cv.Mat) {
+                opencvReady = true;
+                document.getElementById('opencv-status').textContent = 'Pronto';
+                console.log('OpenCV.js pronto e funzionante');
+            } else {
+                console.log('OpenCV non ancora disponibile, riprovo...');
+                setTimeout(onOpenCvReady, 100);
+            }
+        }
+
+        // Polling di fallback per opencv
+        function waitForOpenCV() {
+            const statusEl = document.getElementById('loading-text');
+            let attempts = 0;
+            const maxAttempts = 100; // 10 secondi
+
+            const checkInterval = setInterval(() => {
+                attempts++;
+
+                // Controlla window.cv
+                if (typeof window.cv !== 'undefined' && window.cv.Mat) {
+                    cv = window.cv;  // Assign global
+                    clearInterval(checkInterval);
+                    opencvReady = true;
+                    document.getElementById('opencv-status').textContent = 'Pronto';
+                    console.log('OpenCV.js caricato via polling');
+                } else if (attempts >= maxAttempts) {
+                    clearInterval(checkInterval);
+                    console.error('Timeout caricamento OpenCV');
+                    if (statusEl) statusEl.textContent = 'Errore: OpenCV non caricato';
+                    document.getElementById('opencv-status').textContent = 'Errore';
+                } else {
+                    if (statusEl) statusEl.textContent = `Caricamento OpenCV... (${attempts}%)`;
+                }
+            }, 100);
+        }
+
+        class SimpleARCamera {
+            constructor() {
+                this.video = document.getElementById('camera-stream');
+                this.overlay = document.getElementById('ar-overlay');
+                this.characters = [];
+                this.markerImages = {}; // Cache delle immagini marker caricate
+                this.markerDescriptors = {}; // Cache dei descrittori ORB
+                this.detectionRunning = false;
+                this.fps = 0;
+                this.lastFrameTime = performance.now();
+
+                // Canvas nascosti per processing
+                this.videoCanvas = document.createElement('canvas');
+                this.videoCtx = this.videoCanvas.getContext('2d');
+            }
+
+            async init() {
+                try {
+                    await this.initCamera();
+                    await this.loadCharacters();
+                    await this.preloadMarkers();
+                    this.hideLoading();
+                    this.startDetectionLoop();
+                    console.log('SimpleARCamera inizializzato');
+                } catch (error) {
+                    console.error('Errore inizializzazione:', error);
+                    this.showError('Errore: ' + error.message);
+                }
+            }
+
+            async initCamera() {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            facingMode: 'environment',
+                            width: { ideal: 1920 },
+                            height: { ideal: 1080 }
+                        }
+                    });
+                    this.video.srcObject = stream;
+
+                    return new Promise((resolve) => {
+                        this.video.onloadedmetadata = () => {
+                            this.videoCanvas.width = this.video.videoWidth;
+                            this.videoCanvas.height = this.video.videoHeight;
+                            console.log(`Camera: ${this.video.videoWidth}x${this.video.videoHeight}`);
+                            resolve();
+                        };
+                    });
+                } catch (error) {
+                    throw new Error('Impossibile accedere alla fotocamera: ' + error.message);
+                }
+            }
+
+            async loadCharacters() {
+                try {
+                    // Prima prova con i dati embedded
+                    if (window.EMBEDDED_CHARACTERS && Array.isArray(window.EMBEDDED_CHARACTERS) && window.EMBEDDED_CHARACTERS.length > 0) {
+                        this.characters = window.EMBEDDED_CHARACTERS;
+                        console.log(`Caricati ${this.characters.length} personaggi (embedded)`);
+                    } else {
+                        // Fallback API
+                        const response = await fetch('/api/characters/');
+                        const data = await response.json();
+                        // L'API restituisce {characters: [...]}
+                        this.characters = data.characters || data;
+                        console.log(`Caricati ${this.characters.length} personaggi (API)`);
+                    }
+
+                    // Verifica che sia un array
+                    if (!Array.isArray(this.characters)) {
+                        console.error('this.characters non è un array:', this.characters);
+                        this.characters = [];
+                    }
+
+                    // Filtra solo i personaggi con marker
+                    this.characters = this.characters.filter(c => c && c.positioning_marker_image);
+
+                    console.log(`Personaggi con marker: ${this.characters.length}`);
+                    document.getElementById('char-count').textContent = this.characters.length;
+
+                    if (this.characters.length === 0) {
+                        throw new Error('Nessun personaggio con positioning marker trovato');
+                    }
+                } catch (error) {
+                    console.error('Errore caricamento personaggi:', error);
+                    throw error;
+                }
+            }
+
+            async preloadMarkers() {
+                if (!opencvReady) {
+                    await new Promise(resolve => {
+                        const checkInterval = setInterval(() => {
+                            if (opencvReady) {
+                                clearInterval(checkInterval);
+                                resolve();
+                            }
+                        }, 100);
+                    });
+                }
+
+                document.getElementById('loading-text').textContent = 'Caricamento marker...';
+
+                for (const char of this.characters) {
+                    if (!char.positioning_marker_image) continue;
+
+                    try {
+                        // Carica immagine marker
+                        const img = await this.loadImage(char.positioning_marker_image);
+                        this.markerImages[char.id] = img;
+
+                        // Estrai features ORB dal marker
+                        const descriptor = await this.extractMarkerFeatures(img);
+                        this.markerDescriptors[char.id] = descriptor;
+
+                        console.log(`Marker ${char.id} caricato: ${descriptor.keypoints.length} features`);
+                    } catch (error) {
+                        console.error(`Errore caricamento marker ${char.id}:`, error);
+                    }
+                }
+            }
+
+            loadImage(src) {
+                return new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.crossOrigin = 'anonymous';
+                    img.onload = () => resolve(img);
+                    img.onerror = reject;
+                    img.src = src;
+                });
+            }
+
+            async extractMarkerFeatures(markerImg) {
+                // Crea Mat da immagine
+                const canvas = document.createElement('canvas');
+                canvas.width = markerImg.width;
+                canvas.height = markerImg.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(markerImg, 0, 0);
+
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const mat = cv.matFromImageData(imageData);
+                const gray = new cv.Mat();
+
+                if (mat.channels() === 4) {
+                    cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY);
+                } else if (mat.channels() === 3) {
+                    cv.cvtColor(mat, gray, cv.COLOR_RGB2GRAY);
+                } else {
+                    gray.delete();
+                    mat.copyTo(gray);
+                }
+
+                // Estrai features ORB
+                const orb = new cv.ORB(500); // 500 features per marker
+                const keypoints = new cv.KeyPointVector();
+                const descriptors = new cv.Mat();
+
+                orb.detectAndCompute(gray, new cv.Mat(), keypoints, descriptors);
+
+                const result = {
+                    keypoints: keypoints,
+                    descriptors: descriptors,
+                    width: canvas.width,
+                    height: canvas.height
+                };
+
+                // Cleanup
+                mat.delete();
+                gray.delete();
+                orb.delete();
+
+                return result;
+            }
+
+            startDetectionLoop() {
+                if (!opencvReady || this.detectionRunning) return;
+                this.detectionRunning = true;
+                this.detectLoop();
+            }
+
+            async detectLoop() {
+                if (!this.detectionRunning) return;
+
+                const now = performance.now();
+                const deltaTime = now - this.lastFrameTime;
+                this.fps = Math.round(1000 / deltaTime);
+                this.lastFrameTime = now;
+                document.getElementById('fps-display').textContent = this.fps;
+
+                try {
+                    await this.processFrame();
+                } catch (error) {
+                    console.error('Errore nel frame:', error);
+                }
+
+                requestAnimationFrame(() => this.detectLoop());
+            }
+
+            async processFrame() {
+                if (!this.video.readyState === this.video.HAVE_ENOUGH_DATA) return;
+
+                // Cattura frame corrente
+                this.videoCtx.drawImage(this.video, 0, 0, this.videoCanvas.width, this.videoCanvas.height);
+                const imageData = this.videoCtx.getImageData(0, 0, this.videoCanvas.width, this.videoCanvas.height);
+
+                const frameMat = cv.matFromImageData(imageData);
+                const frameGray = new cv.Mat();
+
+                if (frameMat.channels() === 4) {
+                    cv.cvtColor(frameMat, frameGray, cv.COLOR_RGBA2GRAY);
+                } else if (frameMat.channels() === 3) {
+                    cv.cvtColor(frameMat, frameGray, cv.COLOR_RGB2GRAY);
+                } else {
+                    frameMat.copyTo(frameGray);
+                }
+
+                // Estrai features dal frame
+                const orb = new cv.ORB(1000); // 1000 features per frame
+                const frameKeypoints = new cv.KeyPointVector();
+                const frameDescriptors = new cv.Mat();
+                orb.detectAndCompute(frameGray, new cv.Mat(), frameKeypoints, frameDescriptors);
+
+                let markersDetected = 0;
+
+                // Cerca tutti i marker dei personaggi
+                for (const char of this.characters) {
+                    const markerData = this.markerDescriptors[char.id];
+                    if (!markerData || frameDescriptors.empty()) continue;
+
+                    // Match features
+                    const matches = this.matchFeatures(markerData.descriptors, frameDescriptors);
+
+                    if (matches.length >= 10) { // Soglia minima matches
+                        markersDetected++;
+
+                        // Calcola posizione media del marker nel frame
+                        const markerPosition = this.calculateMarkerPosition(
+                            matches,
+                            markerData.keypoints,
+                            frameKeypoints
+                        );
+
+                        if (markerPosition) {
+                            this.updateCharacterPosition(char, markerPosition, matches.length);
+                        }
+                    } else {
+                        // Nascondi personaggio se marker non trovato
+                        this.hideCharacter(char.id);
+                    }
+                }
+
+                document.getElementById('marker-detected').textContent = markersDetected;
+
+                // Cleanup
+                frameMat.delete();
+                frameGray.delete();
+                orb.delete();
+                frameKeypoints.delete();
+                frameDescriptors.delete();
+            }
+
+            matchFeatures(descriptors1, descriptors2) {
+                if (descriptors1.empty() || descriptors2.empty()) return [];
+
+                const bf = new cv.BFMatcher(cv.NORM_HAMMING, true);
+                const matches = new cv.DMatchVector();
+                bf.match(descriptors1, descriptors2, matches);
+
+                // Converti in array e ordina per distanza
+                const matchArray = [];
+                for (let i = 0; i < matches.size(); i++) {
+                    matchArray.push(matches.get(i));
+                }
+                matchArray.sort((a, b) => a.distance - b.distance);
+
+                // Prendi solo i migliori match (distanza < 50)
+                const goodMatches = matchArray.filter(m => m.distance < 50);
+
+                // Cleanup
+                bf.delete();
+                matches.delete();
+
+                return goodMatches;
+            }
+
+            calculateMarkerPosition(matches, markerKeypoints, frameKeypoints) {
+                if (matches.length < 4) return null;
+
+                // Calcola centro medio dei match nel frame
+                let sumX = 0;
+                let sumY = 0;
+                let count = 0;
+
+                for (const match of matches) {
+                    const frameKp = frameKeypoints.get(match.trainIdx);
+                    sumX += frameKp.pt.x;
+                    sumY += frameKp.pt.y;
+                    count++;
+                }
+
+                if (count === 0) return null;
+
+                const centerX = sumX / count;
+                const centerY = sumY / count;
+
+                // Converti da coordinate video a coordinate schermo
+                const videoWidth = this.video.videoWidth;
+                const videoHeight = this.video.videoHeight;
+                const screenWidth = window.innerWidth;
+                const screenHeight = window.innerHeight;
+
+                const scaleX = screenWidth / videoWidth;
+                const scaleY = screenHeight / videoHeight;
+
+                return {
+                    x: centerX * scaleX,
+                    y: centerY * scaleY,
+                    matches: count
+                };
+            }
+
+            updateCharacterPosition(character, position, matchCount) {
+                let charDiv = this.overlay.querySelector(`[data-character-id="${character.id}"]`);
+
+                if (!charDiv) {
+                    // Crea nuovo elemento personaggio
+                    charDiv = document.createElement('div');
+                    charDiv.className = 'ar-character';
+                    charDiv.setAttribute('data-character-id', character.id);
+
+                    const img = document.createElement('img');
+                    img.src = character.character_image;
+                    img.alt = character.name || 'Character';
+
+                    charDiv.appendChild(img);
+                    this.overlay.appendChild(charDiv);
+                }
+
+                // Calcola dimensione basata su match quality
+                const baseSize = character.base_size || 200;
+                const size = Math.max(100, Math.min(400, baseSize * (1 + matchCount / 100)));
+
+                // Applica offset del marker (se configurato)
+                const offsetX = character.marker_offset_x || 0;
+                const offsetY = character.marker_offset_y || 0;
+
+                const finalX = position.x + offsetX - (size / 2);
+                const finalY = position.y + offsetY - (size / 2);
+
+                // Aggiorna posizione e dimensione
+                charDiv.style.left = finalX + 'px';
+                charDiv.style.top = finalY + 'px';
+                charDiv.style.width = size + 'px';
+                charDiv.style.height = size + 'px';
+                charDiv.style.opacity = '1';
+                charDiv.style.display = 'block';
+            }
+
+            hideCharacter(characterId) {
+                const charDiv = this.overlay.querySelector(`[data-character-id="${characterId}"]`);
+                if (charDiv) {
+                    charDiv.style.opacity = '0';
+                    // Rimuovi dopo fade out
+                    setTimeout(() => {
+                        if (charDiv.style.opacity === '0') {
+                            charDiv.remove();
+                        }
+                    }, 300);
+                }
+            }
+
+            hideLoading() {
+                const loading = document.getElementById('loading-overlay');
+                if (loading) {
+                    loading.style.opacity = '0';
+                    setTimeout(() => loading.remove(), 300);
+                }
+            }
+
+            showError(message) {
+                const errorDiv = document.getElementById('error-message');
+                errorDiv.textContent = message;
+                errorDiv.style.display = 'block';
+                setTimeout(() => {
+                    errorDiv.style.display = 'none';
+                }, 5000);
+            }
+        }
+
+        // Inizializzazione app
+        let arCamera;
+
+        // Dati dei personaggi embedded (injected from Django)
+        window.EMBEDDED_CHARACTERS = {{ characters_json|safe }};
+
+        // Avvia quando DOM è pronto
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initApp);
+        } else {
+            initApp();
+        }
+
+        async function initApp() {
+            console.log('initApp chiamato');
+
+            // Avvia il polling per opencv
+            waitForOpenCV();
+
+            // Aspetta che OpenCV sia pronto
+            let waitCount = 0;
+            while (!opencvReady && waitCount < 150) { // max 15 secondi
+                console.log(`Aspettando OpenCV... (${waitCount})`);
+                await new Promise(resolve => setTimeout(resolve, 100));
+                waitCount++;
+            }
+
+            if (!opencvReady) {
+                console.error('Impossibile caricare OpenCV dopo 15 secondi');
+                const loadingText = document.getElementById('loading-text');
+                if (loadingText) {
+                    loadingText.textContent = 'Errore: Impossibile caricare OpenCV. Ricarica la pagina.';
+                    loadingText.style.color = 'red';
+                }
+                return;
+            }
+
+            console.log('OpenCV pronto, inizializzo ARCamera');
+            arCamera = new SimpleARCamera();
+            await arCamera.init();
+        }
+    </script>
+</body>
+</html>

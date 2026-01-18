@@ -43,6 +43,34 @@ def camera_view(request):
 
     return render(request, 'home/camera.html', context)
 
+def camera_simple_view(request):
+    """
+    View per la fotocamera AR semplificata (solo marker-based positioning)
+    """
+    # Ottieni solo i personaggi con positioning_marker_image
+    characters = CharConfiguration.objects.filter(positioning_marker_image__isnull=False).exclude(positioning_marker_image='')
+
+    # Serializza i dati per embedding diretto nell'HTML
+    character_data = []
+    for char in characters:
+        data = {
+            'id': char.id,
+            'name': char.name,
+            'character_image': char.character_image.url if char.character_image else None,
+            'positioning_marker_image': char.positioning_marker_image.url,
+            'base_size': char.base_size,
+            'marker_offset_x': char.marker_offset_x,
+            'marker_offset_y': char.marker_offset_y,
+        }
+        character_data.append(data)
+
+    context = {
+        'characters': characters,
+        'characters_json': json.dumps(character_data),
+    }
+
+    return render(request, 'home/camera_simple.html', context)
+
 def get_character_data(request):
     """
     API endpoint per ottenere i dati dei personaggi in formato JSON
