@@ -445,13 +445,13 @@
                 this.videoElement = null;
 
                 // Stabilizzazione e smoothing
-                this.characterStates = new Map(); // charId -> { visible, lastSeen, position, positionHistory }
+                this.characterStates = new Map(); // charId -> { visible, lastSeen, position, positionHistory, kalmanX, kalmanY }
                 this.PERSISTENCE_FRAMES = 5; // Mantieni visibile per N frames dopo perdita marker
                 this.POSITION_HISTORY_SIZE = 2; // Media mobile su N posizioni (ridotto per reattività)
                 this.HYSTERESIS_SHOW = 80; // Soglia detection marker per cercare positioning marker
                 this.HYSTERESIS_HIDE = 60; // Soglia per nascondere
                 this.OUTLIER_THRESHOLD = 1.8; // Soglia outlier: 180% distanza media
-                this.EMA_ALPHA = 0.3; // Peso per EMA smoothing posizione finale (0=smooth, 1=reattivo)
+                this.EMA_ALPHA = 0.7; // AUMENTATO: Peso per EMA smoothing (0=smooth, 1=reattivo) - più reattivo
 
                 // Kalman filters per smoothing sensori
                 // GPS: process noise basso (cambia lentamente), measurement noise alto (GPS inaccurato)
@@ -466,8 +466,8 @@
                 this.currentGamma = 0; // Roll (inclinazione sinistra/destra)
                 this.screenOrientation = 'portrait'; // portrait | landscape
 
-                // Ancoraggi 3D persistenti per positioning markers
-                this.positionAnchors = new Map(); // charId -> { screenX, screenY, bearing, distance, gpsLat, gpsLng, heading, createdAt }
+                // Ancoraggi 3D persistenti per positioning markers (coordinate VIDEO space)
+                this.positionAnchors = new Map(); // charId -> { videoX, videoY, bearing, distance, gpsLat, gpsLng, heading, beta, gamma, createdAt, lastUpdate }
 
                 this.initCamera();
                 this.initGPS();
@@ -976,24 +976,39 @@
                                             character.target_longitude
                                         );
 
+                                        // IMPORTANTE: Salva coordinate VIDEO (non SCREEN) per consistenza
+                                        // Verranno scalate a SCREEN solo in calculateAnchoredPosition()
+                                        const videoX = smoothPosX;
+                                        const videoY = smoothPosY;
+
+                                        const now = Date.now();
                                         if (this.positionAnchors.has(charId)) {
-                                            // Anchor già esiste → aggiorna completamente
+                                            // Anchor già esiste → aggiorna SOLO se vecchio (>2s senza aggiornamento)
                                             const anchor = this.positionAnchors.get(charId);
-                                            console.log(`📍 Updating anchor: old=(${anchor.screenX.toFixed(1)},${anchor.screenY.toFixed(1)}) → new=(${smoothPosX.toFixed(1)},${smoothPosY.toFixed(1)})`);
-                                            anchor.screenX = smoothPosX;
-                                            anchor.screenY = smoothPosY;
-                                            anchor.bearing = bearing;
-                                            anchor.distance = distance;
-                                            anchor.gpsLat = this.currentPosition.coords.latitude;
-                                            anchor.gpsLng = this.currentPosition.coords.longitude;
-                                            anchor.heading = this.currentHeading;
-                                            anchor.beta = this.currentBeta;
-                                            anchor.gamma = this.currentGamma;
+                                            const timeSinceUpdate = now - (anchor.lastUpdate || anchor.createdAt);
+
+                                            if (timeSinceUpdate > 2000) {
+                                                // Anchor vecchio > 2s → aggiorna completamente
+                                                console.log(`📍 Anchor aged ${Math.round(timeSinceUpdate/1000)}s → REFRESHING: video=(${anchor.videoX.toFixed(1)},${anchor.videoY.toFixed(1)}) → (${videoX.toFixed(1)},${videoY.toFixed(1)})`);
+                                                anchor.videoX = videoX;
+                                                anchor.videoY = videoY;
+                                                anchor.bearing = bearing;
+                                                anchor.distance = distance;
+                                                anchor.gpsLat = this.currentPosition.coords.latitude;
+                                                anchor.gpsLng = this.currentPosition.coords.longitude;
+                                                anchor.heading = this.currentHeading;
+                                                anchor.beta = this.currentBeta;
+                                                anchor.gamma = this.currentGamma;
+                                                anchor.lastUpdate = now;
+                                            } else {
+                                                // Anchor recente → MANTIENI posizione (stabilità)
+                                                console.log(`⚓ Anchor STABLE (${Math.round(timeSinceUpdate)}ms old) - keeping existing position`);
+                                            }
                                         } else {
-                                            // Crea nuovo anchor dal positioning marker
+                                            // Crea nuovo anchor dal positioning marker (coordinate VIDEO)
                                             this.positionAnchors.set(charId, {
-                                                screenX: smoothPosX,
-                                                screenY: smoothPosY,
+                                                videoX: videoX,  // Coordinate VIDEO space
+                                                videoY: videoY,
                                                 bearing: bearing,
                                                 distance: distance,
                                                 gpsLat: this.currentPosition.coords.latitude,
@@ -1001,9 +1016,10 @@
                                                 heading: this.currentHeading,
                                                 beta: this.currentBeta,
                                                 gamma: this.currentGamma,
-                                                createdAt: Date.now()
+                                                createdAt: now,
+                                                lastUpdate: now
                                             });
-                                            console.log(`🔒 Anchor created from POSITIONING marker for ${character.name} at ${Math.round(distance)}m`);
+                                            console.log(`🔒 Anchor CREATED from positioning marker for ${character.name} at ${Math.round(distance)}m (VIDEO coords: ${videoX.toFixed(1)}, ${videoY.toFixed(1)})`);
                                         }
                                     } else {
                                         // Match insufficienti → rimuovi positioning marker dalla Map
@@ -1809,24 +1825,37 @@
                 const baseSize = 80;
                 const imgSize = baseSize * scale;
 
-                // SMOOTHING EMA: Applica Exponential Moving Average per ridurre jitter
+                // KALMAN + EMA: Applica doppio filtro per precisione e stabilità
                 if (!this.characterStates.has(character.id)) {
                     this.characterStates.set(character.id, {
                         visible: false,
                         lastSeen: 0,
                         positionHistory: [],
-                        smoothedPosition: { x: screenPosition.x, y: screenPosition.y }
+                        smoothedPosition: { x: screenPosition.x, y: screenPosition.y },
+                        kalmanX: new KalmanFilter(0.01, 0.1), // Process noise basso, measurement noise medio
+                        kalmanY: new KalmanFilter(0.01, 0.1)
                     });
                 }
 
                 const charState = this.characterStates.get(character.id);
+
+                // Prima filtra con Kalman (rimuove noise sensore)
+                if (!charState.kalmanX || !charState.kalmanY) {
+                    charState.kalmanX = new KalmanFilter(0.01, 0.1);
+                    charState.kalmanY = new KalmanFilter(0.01, 0.1);
+                    charState.kalmanX.reset(screenPosition.x);
+                    charState.kalmanY.reset(screenPosition.y);
+                }
+
+                const kalmanFilteredX = charState.kalmanX.filter(screenPosition.x);
+                const kalmanFilteredY = charState.kalmanY.filter(screenPosition.y);
+
+                // Poi applica EMA per smoothing finale (riduce jitter residuo)
                 if (!charState.smoothedPosition) {
-                    // Prima volta: inizializza con posizione corrente
-                    charState.smoothedPosition = { x: screenPosition.x, y: screenPosition.y };
+                    charState.smoothedPosition = { x: kalmanFilteredX, y: kalmanFilteredY };
                 } else {
-                    // Applica EMA: new_smooth = alpha * new_value + (1-alpha) * old_smooth
-                    charState.smoothedPosition.x = this.EMA_ALPHA * screenPosition.x + (1 - this.EMA_ALPHA) * charState.smoothedPosition.x;
-                    charState.smoothedPosition.y = this.EMA_ALPHA * screenPosition.y + (1 - this.EMA_ALPHA) * charState.smoothedPosition.y;
+                    charState.smoothedPosition.x = this.EMA_ALPHA * kalmanFilteredX + (1 - this.EMA_ALPHA) * charState.smoothedPosition.x;
+                    charState.smoothedPosition.y = this.EMA_ALPHA * kalmanFilteredY + (1 - this.EMA_ALPHA) * charState.smoothedPosition.y;
                 }
 
                 const smoothedX = charState.smoothedPosition.x;
@@ -2037,10 +2066,12 @@
                 const deltaBeta = this.currentBeta - anchor.beta;
                 const tiltCompensation = (deltaBeta / 90) * (screenHeight * 0.3);
 
-                // Usa la Y originale dell'anchor + compensazione tilt
+                // IMPORTANTE: Anchor usa coordinate VIDEO → scala a SCREEN qui
                 const scaleX = screenWidth / this.videoElement.videoWidth;
                 const scaleY = screenHeight / this.videoElement.videoHeight;
-                const y = (anchor.screenY * scaleY) + tiltCompensation;
+                const y = (anchor.videoY * scaleY) + tiltCompensation;
+
+                console.log(`📐 Anchor position: VIDEO=(${anchor.videoX.toFixed(1)},${anchor.videoY.toFixed(1)}) → SCREEN=(${x.toFixed(1)},${y.toFixed(1)}) [scale=${scaleY.toFixed(3)}]`);
 
                 // Scala basata su distanza anchor: 1/3 schermo a 5m
                 const targetSizeAt5m = screenWidth / 3;

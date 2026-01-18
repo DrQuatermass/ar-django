@@ -31,6 +31,7 @@ ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '192.168.0.230', '94.177.170.48']
 CSRF_TRUSTED_ORIGINS = [
     'https://94.177.170.48',
     'http://94.177.170.48',
+    'http://192.168.0.230:8000',  # Rete locale per sviluppo mobile
 ]
 
 
