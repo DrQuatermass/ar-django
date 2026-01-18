@@ -839,24 +839,14 @@
                             if (matches.length >= this.HYSTERESIS_SHOW && this.positioningMarkerTemplates.has(charId)) {
                                 console.log(`✅ Detection passed threshold (${matches.length} >= ${this.HYSTERESIS_SHOW}), checking positioning marker for ${template.character.name}`);
                                 const posTemplate = this.positioningMarkerTemplates.get(charId);
-                                // Usa matching semplice (homography filtrerà gli outliers)
-                                let posMatches = this.matchFeatures(descriptors, posTemplate.descriptors, keypoints, posTemplate.keypoints, false);
-                                console.log(`🔍 Positioning marker raw matches: ${posMatches.length}`);
+                                // Usa ratio test per positioning marker (più preciso)
+                                let posMatches = this.matchFeatures(descriptors, posTemplate.descriptors, keypoints, posTemplate.keypoints, true);
+                                console.log(`🔍 Positioning marker matches (ratio test): ${posMatches.length}`);
 
-                                // VALIDAZIONE HOMOGRAPHY: Rimuove outliers geometrici
-                                if (posMatches.length >= 10) {
-                                    const beforeHomography = posMatches.length;
-                                    const validatedMatches = this.validateMatchesWithHomography(posMatches, keypoints, posTemplate.keypoints);
-                                    if (validatedMatches.length > 0) {
-                                        posMatches = validatedMatches;
-                                        console.log(`✓ Homography: ${validatedMatches.length}/${beforeHomography} kept (${beforeHomography - validatedMatches.length} outliers removed)`);
-                                    } else {
-                                        console.log(`⚠️ Homography rejected all ${beforeHomography} positioning matches`);
-                                        posMatches = []; // Nessun match valido
-                                    }
-                                } else {
-                                    console.log(`⚠️ Too few matches for homography: ${posMatches.length} < 10`);
-                                }
+                                // HOMOGRAPHY DISABILITATO: Il ratio test (0.85) filtra già abbastanza
+                                // L'homography fallisce con marker frontali (det~0) bloccando l'anchor
+                                // Manteniamo i match dal ratio test che sono già di qualità
+                                console.log(`✓ Using ${posMatches.length} matches from ratio test (homography disabled for anchor stability)`)
 
                                 if (posMatches.length > 0) {
                                     // PRIMA PASSATA: Calcola centro grezzo
@@ -945,8 +935,8 @@
                                     const posBboxWidth = posMarkerWidth + posPaddingX * 2;
                                     const posBboxHeight = posMarkerHeight + posPaddingY * 2;
 
-                                    // Soglia positioning marker: molto bassa perché ratio test + homography filtrano già
-                                    const minPositioningMatches = 10;
+                                    // Soglia positioning marker: 40+ matches necessari per anchor stabile
+                                    const minPositioningMatches = 40;
 
                                     if (posMatches.length >= minPositioningMatches) {
                                         // Solo se abbastanza match, salva il positioning marker
