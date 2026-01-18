@@ -489,15 +489,29 @@
             calculateMarkerPosition(matches, markerKeypoints, frameKeypoints) {
                 if (matches.length < 4) return null;
 
-                // Calcola centro medio dei match nel frame
+                // Calcola centro medio e bounding box dei match nel frame
                 let sumX = 0;
                 let sumY = 0;
+                let minX = Infinity;
+                let maxX = -Infinity;
+                let minY = Infinity;
+                let maxY = -Infinity;
                 let count = 0;
 
                 for (const match of matches) {
                     const frameKp = frameKeypoints.get(match.trainIdx);
-                    sumX += frameKp.pt.x;
-                    sumY += frameKp.pt.y;
+                    const x = frameKp.pt.x;
+                    const y = frameKp.pt.y;
+
+                    sumX += x;
+                    sumY += y;
+
+                    // Calcola bounding box
+                    minX = Math.min(minX, x);
+                    maxX = Math.max(maxX, x);
+                    minY = Math.min(minY, y);
+                    maxY = Math.max(maxY, y);
+
                     count++;
                 }
 
@@ -505,6 +519,11 @@
 
                 const centerX = sumX / count;
                 const centerY = sumY / count;
+
+                // Dimensione del marker nel frame (in pixel video)
+                const markerWidth = maxX - minX;
+                const markerHeight = maxY - minY;
+                const markerSize = Math.sqrt(markerWidth * markerWidth + markerHeight * markerHeight);
 
                 // Converti da coordinate video a coordinate schermo
                 const videoWidth = this.video.videoWidth;
@@ -518,6 +537,7 @@
                 return {
                     x: centerX * scaleX,
                     y: centerY * scaleY,
+                    markerSize: markerSize,  // Dimensione in pixel video
                     matches: count
                 };
             }
@@ -542,9 +562,15 @@
                     img = charDiv.querySelector('img');
                 }
 
-                // Calcola larghezza basata su match quality
+                // Calcola larghezza basata sulla dimensione del marker rilevato
+                // markerSize più grande = marker più vicino = personaggio più grande
                 const baseSize = character.base_size || 200;
-                const width = Math.max(100, Math.min(400, baseSize * (1 + matchCount / 100)));
+                const markerSize = position.markerSize || 100;
+
+                // Scala in base a dimensione marker: 100px baseline, scala lineare
+                // Tipico range: 50-300px per markerSize
+                const scaleFactor = markerSize / 150; // 150px = dimensione "normale"
+                const width = Math.max(80, Math.min(500, baseSize * scaleFactor));
 
                 // Calcola altezza proporzionale all'aspect ratio dell'immagine
                 // Se l'immagine non è ancora caricata, usa ratio 1:1 temporaneo
