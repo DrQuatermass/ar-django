@@ -708,14 +708,40 @@
                 // Loop di rendering a 60fps per interpolazione posizioni
                 const updateLoop = () => {
                     this.updateSmoothPositions();
+                    this.updateAnchoredCharacters(); // Aggiorna anche character ancorati
                     requestAnimationFrame(updateLoop);
                 };
                 requestAnimationFrame(updateLoop);
             }
 
+            updateAnchoredCharacters() {
+                // Aggiorna posizioni di character con anchor in base a movimenti camera
+                if (!this.currentPosition || !this.positionAnchors.size) return;
+
+                this.positionAnchors.forEach((anchor, charId) => {
+                    const character = this.characters.find(c => c.id === charId);
+                    if (!character) return;
+
+                    // Calcola nuova posizione schermo dall'anchor
+                    const screenPosition = this.calculateAnchoredPosition(anchor, character);
+
+                    if (screenPosition && screenPosition.visible) {
+                        // Aggiorna TARGET position per interpolazione smooth
+                        let smoothPos = this.characterSmoothPositions.get(charId);
+                        if (smoothPos) {
+                            smoothPos.targetX = screenPosition.x;
+                            smoothPos.targetY = screenPosition.y;
+                            smoothPos.targetScale = screenPosition.scale;
+                        }
+                    }
+                });
+            }
+
             updateSmoothPositions() {
                 // Interpola posizioni di tutti i character visibili
                 const overlay = document.getElementById('ar-overlay');
+                if (!overlay) return;
+
                 const allCharDivs = overlay.querySelectorAll('.ar-character');
 
                 allCharDivs.forEach(div => {
@@ -724,9 +750,16 @@
 
                     if (smoothPos && smoothPos.targetX !== null) {
                         // Interpolazione lineare (LERP)
+                        const oldX = smoothPos.currentX;
                         smoothPos.currentX += (smoothPos.targetX - smoothPos.currentX) * this.smoothingFactor;
                         smoothPos.currentY += (smoothPos.targetY - smoothPos.currentY) * this.smoothingFactor;
                         smoothPos.currentScale += (smoothPos.targetScale - smoothPos.currentScale) * this.smoothingFactor;
+
+                        // Debug: log solo se c'è movimento significativo
+                        const deltaX = Math.abs(smoothPos.currentX - oldX);
+                        if (deltaX > 1) {
+                            console.log(`🔄 Interpolating char ${charId}: target=(${smoothPos.targetX.toFixed(0)},${smoothPos.targetY.toFixed(0)}) current=(${smoothPos.currentX.toFixed(0)},${smoothPos.currentY.toFixed(0)})`);
+                        }
 
                         // Applica posizione interpolata
                         div.style.left = `${smoothPos.currentX}px`;
