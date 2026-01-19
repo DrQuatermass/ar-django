@@ -508,8 +508,8 @@
                 this.characterStates = new Map(); // charId -> { visible, lastSeen, position, positionHistory, kalmanX, kalmanY }
                 this.PERSISTENCE_FRAMES = 5; // Mantieni visibile per N frames dopo perdita marker
                 this.POSITION_HISTORY_SIZE = 2; // Media mobile su N posizioni (ridotto per reattività)
-                this.HYSTERESIS_SHOW = 40; // Soglia detection marker per cercare positioning marker (abbassata da 80 per marker meno ricchi)
-                this.HYSTERESIS_HIDE = 30; // Soglia per nascondere (abbassata da 60)
+                this.HYSTERESIS_SHOW = 50; // Soglia detection marker per cercare positioning marker (bilanciata per evitare false positive)
+                this.HYSTERESIS_HIDE = 40; // Soglia per nascondere (con hysteresis di 10 per stabilità)
                 this.OUTLIER_THRESHOLD = 1.8; // Soglia outlier: 180% distanza media
                 this.EMA_ALPHA = 0.7; // AUMENTATO: Peso per EMA smoothing (0=smooth, 1=reattivo) - più reattivo
 
