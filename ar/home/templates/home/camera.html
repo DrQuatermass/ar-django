@@ -1949,7 +1949,7 @@
                 }
 
                 // Usa current position per posizionamento iniziale
-                console.log(`🎨 Applying SMOOTHED position to DOM: raw=(${screenPosition.x.toFixed(1)}, ${screenPosition.y.toFixed(1)}) → smooth=(${smoothedX.toFixed(1)}, ${smoothedY.toFixed(1)})`);
+                console.log(`🎨 Applying SMOOTHED position to DOM: raw=(${screenPosition.x.toFixed(1)}, ${screenPosition.y.toFixed(1)}) → smooth=(${smoothPos.currentX.toFixed(1)}, ${smoothPos.currentY.toFixed(1)})`);
                 // Posizionamento iniziale (l'interpolazione smooth avviene in updateSmoothPositions)
                 characterDiv.style.left = smoothPos.currentX + 'px';
                 characterDiv.style.top = smoothPos.currentY + 'px';
