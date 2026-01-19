@@ -239,6 +239,47 @@
             z-index: 15;
         }
 
+        #marker-debug-overlay {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-family: monospace;
+            z-index: 30;
+            display: none;
+            max-width: 300px;
+        }
+
+        #marker-debug-overlay.visible {
+            display: block;
+        }
+
+        .debug-marker-item {
+            margin: 5px 0;
+            padding: 5px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+
+        .debug-marker-detection {
+            color: #00ff00;
+            font-weight: bold;
+        }
+
+        .debug-marker-positioning {
+            color: #00ffff;
+            font-weight: bold;
+        }
+
+        .debug-marker-anchor {
+            color: #ffaa00;
+            font-weight: bold;
+        }
+
         @media (max-width: 768px) {
             #controls {
                 flex-direction: column;
@@ -311,6 +352,20 @@
     <button id="toggle-markers" onclick="toggleMarkers()">👁️ Hide Markers</button>
     <div id="debug-log"></div>
 
+    <!-- Marker Detection Debug Overlay -->
+    <div id="marker-debug-overlay">
+        <div style="font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #444; padding-bottom: 5px;">
+            📍 Marker Detection Status
+        </div>
+        <div id="marker-debug-content">
+            <div style="color: #888;">Waiting for detection...</div>
+        </div>
+    </div>
+    <button id="toggle-marker-debug" onclick="toggleMarkerDebug()"
+            style="position: fixed; bottom: 70px; left: 10px; background: rgba(0, 0, 0, 0.7); color: white; padding: 8px 12px; border-radius: 5px; font-size: 10px; z-index: 26; cursor: pointer; border: 1px solid #ff00ff;">
+        🎯 Marker Info
+    </button>
+
     <script>
         // Inizializza stato marker PRIMA di tutto (default: visibili)
         window.markersVisible = true;
@@ -330,6 +385,11 @@
             });
 
             console.log(`Markers visibility: ${window.markersVisible ? 'ON' : 'OFF'}`);
+        }
+
+        function toggleMarkerDebug() {
+            const overlay = document.getElementById('marker-debug-overlay');
+            overlay.classList.toggle('visible');
         }
 
         function updateMarkersButton() {
@@ -469,12 +529,17 @@
                 // Ancoraggi 3D persistenti per positioning markers (coordinate VIDEO space)
                 this.positionAnchors = new Map(); // charId -> { videoX, videoY, bearing, distance, gpsLat, gpsLng, heading, beta, gamma, createdAt, lastUpdate }
 
+                // Sistema di interpolazione per movimenti fluidi
+                this.characterSmoothPositions = new Map(); // charId -> { currentX, currentY, currentScale, targetX, targetY, targetScale, lastUpdate }
+                this.smoothingFactor = 0.15; // Velocità interpolazione (0.1 = lento, 0.3 = veloce)
+
                 this.initCamera();
                 this.initGPS();
                 this.loadCharacterData();
                 this.setupCompassButton();
                 this.initMarkerDetection();
                 this.autoEnableCompass();
+                this.startSmoothPositionLoop(); // Loop per interpolazione continua
             }
 
             async initCamera() {
@@ -631,12 +696,51 @@
                 this.processingCanvas = document.createElement('canvas');
                 this.processingCtx = this.processingCanvas.getContext('2d');
 
-                // Esegui detection ogni 500ms
+                // Esegui detection ogni 150ms per tracking più fluido (era 500ms)
                 setInterval(() => {
                     if (openCvReady && this.videoElement && this.videoElement.readyState === 4 && this.markerTemplates.size > 0) {
                         this.detectMarkersInFrame();
                     }
-                }, 500);
+                }, 150);
+            }
+
+            startSmoothPositionLoop() {
+                // Loop di rendering a 60fps per interpolazione posizioni
+                const updateLoop = () => {
+                    this.updateSmoothPositions();
+                    requestAnimationFrame(updateLoop);
+                };
+                requestAnimationFrame(updateLoop);
+            }
+
+            updateSmoothPositions() {
+                // Interpola posizioni di tutti i character visibili
+                const overlay = document.getElementById('ar-overlay');
+                const allCharDivs = overlay.querySelectorAll('.ar-character');
+
+                allCharDivs.forEach(div => {
+                    const charId = parseInt(div.dataset.characterId);
+                    const smoothPos = this.characterSmoothPositions.get(charId);
+
+                    if (smoothPos && smoothPos.targetX !== null) {
+                        // Interpolazione lineare (LERP)
+                        smoothPos.currentX += (smoothPos.targetX - smoothPos.currentX) * this.smoothingFactor;
+                        smoothPos.currentY += (smoothPos.targetY - smoothPos.currentY) * this.smoothingFactor;
+                        smoothPos.currentScale += (smoothPos.targetScale - smoothPos.currentScale) * this.smoothingFactor;
+
+                        // Applica posizione interpolata
+                        div.style.left = `${smoothPos.currentX}px`;
+                        div.style.top = `${smoothPos.currentY}px`;
+
+                        const baseSize = 80;
+                        const imgSize = baseSize * smoothPos.currentScale;
+                        const img = div.querySelector('img');
+                        if (img) {
+                            img.style.width = `${imgSize}px`;
+                            img.style.height = `${imgSize}px`;
+                        }
+                    }
+                });
             }
 
             detectMarkersInFrame() {
@@ -697,10 +801,16 @@
                     const gray = new cv.Mat();
                     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
-                    const orb = new cv.ORB(500);
+                    // ORB features adattivo in base a distanza
+                    // Vicino (< 5m): meno features (marker più grande)
+                    // Lontano (> 20m): più features (marker più piccolo)
+                    const adaptiveFeatures = this.getAdaptiveORBFeatures(nearestDistance);
+                    const orb = new cv.ORB(adaptiveFeatures);
                     const keypoints = new cv.KeyPointVector();
                     const descriptors = new cv.Mat();
                     orb.detectAndCompute(gray, new cv.Mat(), keypoints, descriptors);
+
+                    console.log(`🔍 ORB detection: ${adaptiveFeatures} features for distance ${Math.round(nearestDistance)}m`);
 
                     this.detectedMarkers.clear();
                     this.detectedPositioningMarkers = this.detectedPositioningMarkers || new Map();
@@ -834,6 +944,7 @@
                             });
 
                             console.log(`Detection marker for ${template.character.name}: ${matches.length} matches, visible=${showCharacter}`);
+                            this.updateMarkerDebugOverlay(template.character.name, 'detection', matches.length, showCharacter);
 
                             // POSITIONING MARKER: Cerca solo se detection matches > soglia SHOW
                             if (matches.length >= this.HYSTERESIS_SHOW && this.positioningMarkerTemplates.has(charId)) {
@@ -951,6 +1062,7 @@
                                             type: 'positioning'
                                         });
                                         console.log(`✓ Positioning marker for ${template.character.name}: ${posMatches.length} matches`);
+                                        this.updateMarkerDebugOverlay(template.character.name, 'positioning', posMatches.length, true, this.positionAnchors.has(charId));
 
                                         // CREA/AGGIORNA anchor con posizione PRECISA da positioning marker
                                         const bearing = this.calculateBearing(
@@ -973,27 +1085,38 @@
 
                                         const now = Date.now();
                                         if (this.positionAnchors.has(charId)) {
-                                            // Anchor già esiste → aggiorna SOLO se vecchio (>2s senza aggiornamento)
+                                            // Anchor già esiste → aggiorna con blending progressivo
                                             const anchor = this.positionAnchors.get(charId);
                                             const timeSinceUpdate = now - (anchor.lastUpdate || anchor.createdAt);
 
+                                            // Refresh progressivo: più tempo passa, più pesa la nuova posizione
+                                            // 0-500ms: 10% nuovo, 90% vecchio (massima stabilità)
+                                            // 500ms-2s: graduale aumento
+                                            // >2s: 100% nuovo (reset completo)
+                                            let blendFactor = 0.1; // Default: poca influenza nuova pos
+
                                             if (timeSinceUpdate > 2000) {
-                                                // Anchor vecchio > 2s → aggiorna completamente
-                                                console.log(`📍 Anchor aged ${Math.round(timeSinceUpdate/1000)}s → REFRESHING: video=(${anchor.videoX.toFixed(1)},${anchor.videoY.toFixed(1)}) → (${videoX.toFixed(1)},${videoY.toFixed(1)})`);
-                                                anchor.videoX = videoX;
-                                                anchor.videoY = videoY;
-                                                anchor.bearing = bearing;
-                                                anchor.distance = distance;
-                                                anchor.gpsLat = this.currentPosition.coords.latitude;
-                                                anchor.gpsLng = this.currentPosition.coords.longitude;
-                                                anchor.heading = this.currentHeading;
-                                                anchor.beta = this.currentBeta;
-                                                anchor.gamma = this.currentGamma;
-                                                anchor.lastUpdate = now;
+                                                blendFactor = 1.0; // Reset completo
+                                                console.log(`📍 Anchor aged ${Math.round(timeSinceUpdate/1000)}s → FULL REFRESH`);
+                                            } else if (timeSinceUpdate > 500) {
+                                                // Blend progressivo: da 0.1 a 1.0 tra 500ms e 2000ms
+                                                blendFactor = 0.1 + (timeSinceUpdate - 500) / 1500 * 0.9;
+                                                console.log(`🔄 Anchor BLENDING (age: ${Math.round(timeSinceUpdate)}ms, blend: ${blendFactor.toFixed(2)})`);
                                             } else {
-                                                // Anchor recente → MANTIENI posizione (stabilità)
-                                                console.log(`⚓ Anchor STABLE (${Math.round(timeSinceUpdate)}ms old) - keeping existing position`);
+                                                console.log(`⚓ Anchor STABLE (${Math.round(timeSinceUpdate)}ms old)`);
                                             }
+
+                                            // Applica blending
+                                            anchor.videoX = anchor.videoX * (1 - blendFactor) + videoX * blendFactor;
+                                            anchor.videoY = anchor.videoY * (1 - blendFactor) + videoY * blendFactor;
+                                            anchor.bearing = anchor.bearing * (1 - blendFactor) + bearing * blendFactor;
+                                            anchor.distance = anchor.distance * (1 - blendFactor) + distance * blendFactor;
+                                            anchor.gpsLat = this.currentPosition.coords.latitude;
+                                            anchor.gpsLng = this.currentPosition.coords.longitude;
+                                            anchor.heading = this.currentHeading;
+                                            anchor.beta = this.currentBeta;
+                                            anchor.gamma = this.currentGamma;
+                                            anchor.lastUpdate = now;
                                         } else {
                                             // Crea nuovo anchor dal positioning marker (coordinate VIDEO)
                                             this.positionAnchors.set(charId, {
@@ -1796,56 +1919,51 @@
                 const baseSize = 80;
                 const imgSize = baseSize * scale;
 
-                // KALMAN + EMA: Applica doppio filtro per precisione e stabilità
-                if (!this.characterStates.has(character.id)) {
-                    this.characterStates.set(character.id, {
-                        visible: false,
-                        lastSeen: 0,
-                        positionHistory: [],
-                        smoothedPosition: { x: screenPosition.x, y: screenPosition.y },
-                        kalmanX: new KalmanFilter(0.01, 0.1), // Process noise basso, measurement noise medio
-                        kalmanY: new KalmanFilter(0.01, 0.1)
+                // Sistema di interpolazione smooth con requestAnimationFrame
+                // Aggiorna TARGET position invece di applicare direttamente
+                if (!this.characterSmoothPositions.has(character.id)) {
+                    this.characterSmoothPositions.set(character.id, {
+                        currentX: screenPosition.x,
+                        currentY: screenPosition.y,
+                        currentScale: scale,
+                        targetX: screenPosition.x,
+                        targetY: screenPosition.y,
+                        targetScale: scale,
+                        lastUpdate: Date.now()
                     });
                 }
 
-                const charState = this.characterStates.get(character.id);
+                const smoothPos = this.characterSmoothPositions.get(character.id);
 
-                // Prima filtra con Kalman (rimuove noise sensore)
-                if (!charState.kalmanX || !charState.kalmanY) {
-                    charState.kalmanX = new KalmanFilter(0.01, 0.1);
-                    charState.kalmanY = new KalmanFilter(0.01, 0.1);
-                    charState.kalmanX.reset(screenPosition.x);
-                    charState.kalmanY.reset(screenPosition.y);
+                // Aggiorna il TARGET (l'interpolazione avviene in updateSmoothPositions)
+                smoothPos.targetX = screenPosition.x;
+                smoothPos.targetY = screenPosition.y;
+                smoothPos.targetScale = scale;
+                smoothPos.lastUpdate = Date.now();
+
+                // Inizializza position immediata se è nuovo
+                if (isNew) {
+                    smoothPos.currentX = screenPosition.x;
+                    smoothPos.currentY = screenPosition.y;
+                    smoothPos.currentScale = scale;
                 }
 
-                const kalmanFilteredX = charState.kalmanX.filter(screenPosition.x);
-                const kalmanFilteredY = charState.kalmanY.filter(screenPosition.y);
-
-                // Poi applica EMA per smoothing finale (riduce jitter residuo)
-                if (!charState.smoothedPosition) {
-                    charState.smoothedPosition = { x: kalmanFilteredX, y: kalmanFilteredY };
-                } else {
-                    charState.smoothedPosition.x = this.EMA_ALPHA * kalmanFilteredX + (1 - this.EMA_ALPHA) * charState.smoothedPosition.x;
-                    charState.smoothedPosition.y = this.EMA_ALPHA * kalmanFilteredY + (1 - this.EMA_ALPHA) * charState.smoothedPosition.y;
-                }
-
-                const smoothedX = charState.smoothedPosition.x;
-                const smoothedY = charState.smoothedPosition.y;
-
-                // AGGIORNA posizione con valori smoothed (le transizioni CSS renderanno il movimento smooth)
+                // Usa current position per posizionamento iniziale
                 console.log(`🎨 Applying SMOOTHED position to DOM: raw=(${screenPosition.x.toFixed(1)}, ${screenPosition.y.toFixed(1)}) → smooth=(${smoothedX.toFixed(1)}, ${smoothedY.toFixed(1)})`);
-                characterDiv.style.left = smoothedX + 'px';
-                characterDiv.style.top = smoothedY + 'px';
+                // Posizionamento iniziale (l'interpolazione smooth avviene in updateSmoothPositions)
+                characterDiv.style.left = smoothPos.currentX + 'px';
+                characterDiv.style.top = smoothPos.currentY + 'px';
                 characterDiv.style.transform = 'translate(-50%, -50%)';
 
                 // Aggiorna contenuto solo se necessario (per evitare flickering)
                 if (isNew || !characterDiv.querySelector('img')) {
-                    console.log(`Character ${character.name}: distance=${Math.round(distance)}m, scale=${scale.toFixed(2)}, mode=${character.display_mode}`);
+                    console.log(`Character ${character.name}: distance=${Math.round(distance)}m, scale=${smoothPos.currentScale.toFixed(2)}, mode=${character.display_mode}`);
                     if (character.character_image) {
+                        const currentImgSize = baseSize * smoothPos.currentScale;
                         characterDiv.innerHTML = `
                             <img src="${character.character_image}"
                                  alt="${character.name}"
-                                 style="width: ${imgSize}px; height: ${imgSize}px;">
+                                 style="width: ${currentImgSize}px; height: ${currentImgSize}px;">
                             <div class="ar-character-info">
                                 <div><strong>${character.name}</strong></div>
                                 <div>${Math.round(distance)}m</div>
@@ -1856,20 +1974,12 @@
                         return;
                     }
                 } else {
-                    // Aggiorna solo dimensioni immagine e distanza
-                    const img = characterDiv.querySelector('img');
-                    const nameDiv = characterDiv.querySelector('.ar-character-info div:first-child strong');
+                    // Aggiorna solo distanza (dimensione gestita da updateSmoothPositions)
                     const distanceDiv = characterDiv.querySelector('.ar-character-info div:last-child');
-                    if (img) {
-                        img.style.width = imgSize + 'px';
-                        img.style.height = imgSize + 'px';
-                    }
-                    if (nameDiv) {
-                        nameDiv.textContent = character.name;
-                    }
                     if (distanceDiv) {
-                        distanceDiv.textContent = Math.round(distance) + 'm';
+                        distanceDiv.textContent = `${Math.round(distance)}m`;
                     }
+                    // NON aggiornare img.style qui - lascia gestire a updateSmoothPositions
                 }
 
                 // Aggiungi all'overlay se nuovo
@@ -1884,6 +1994,21 @@
                     if (characterDiv.style.opacity !== '1') {
                         characterDiv.style.opacity = '1';
                     }
+                }
+            }
+
+            getAdaptiveORBFeatures(distance) {
+                // Adatta numero di features in base alla distanza
+                // Vicino: marker grande → meno features servono
+                // Lontano: marker piccolo → più features per accuratezza
+                if (distance < 3) {
+                    return 300; // Molto vicino
+                } else if (distance < 10) {
+                    return 500; // Vicino (default)
+                } else if (distance < 25) {
+                    return 800; // Medio-lontano
+                } else {
+                    return 1200; // Lontano
                 }
             }
 
@@ -2057,6 +2182,70 @@
                     scale: scale,
                     visible: true
                 };
+            }
+
+            updateMarkerDebugOverlay(characterName, markerType, matches, visible, hasAnchor = false) {
+                const content = document.getElementById('marker-debug-content');
+                if (!content) return;
+
+                // Trova o crea item per questo character
+                let item = content.querySelector(`[data-character="${characterName}"]`);
+                if (!item) {
+                    item = document.createElement('div');
+                    item.className = 'debug-marker-item';
+                    item.dataset.character = characterName;
+                    content.appendChild(item);
+                }
+
+                // Determina classe CSS per colore
+                let statusClass = 'debug-marker-detection';
+                let statusIcon = '🟢';
+                let statusText = 'Detection';
+
+                if (markerType === 'positioning') {
+                    statusClass = 'debug-marker-positioning';
+                    statusIcon = '🔵';
+                    statusText = 'Positioning';
+                }
+
+                if (hasAnchor) {
+                    statusClass = 'debug-marker-anchor';
+                    statusIcon = '🟠';
+                    statusText = 'Anchored';
+                }
+
+                if (!visible) {
+                    statusIcon = '🔴';
+                }
+
+                // Aggiorna contenuto
+                item.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <span style="font-weight: bold;">${characterName}</span>
+                            <div style="font-size: 9px; color: #aaa; margin-top: 2px;">
+                                ${statusIcon} <span class="${statusClass}">${statusText}</span>
+                            </div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div style="font-size: 11px; color: ${matches >= 100 ? '#00ff00' : matches >= 40 ? '#ffaa00' : '#ff4444'}">
+                                ${matches} matches
+                            </div>
+                            <div style="font-size: 9px; color: #888;">
+                                ${visible ? 'Visible' : 'Hidden'}
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                // Auto-rimuovi vecchi item dopo 5 secondi senza update
+                item.dataset.lastUpdate = Date.now();
+                setTimeout(() => {
+                    const lastUpdate = parseInt(item.dataset.lastUpdate || 0);
+                    if (Date.now() - lastUpdate > 5000) {
+                        item.remove();
+                    }
+                }, 5500);
             }
 
             showError(message) {
