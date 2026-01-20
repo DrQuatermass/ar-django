@@ -364,6 +364,10 @@
                 <span class="status-value" id="gpsStatus">Ricerca...</span>
             </div>
             <div class="status-item">
+                <span class="status-label">Bussola:</span>
+                <span class="status-value" id="compassStatus">Inizializzazione...</span>
+            </div>
+            <div class="status-item">
                 <span class="status-label">Scansione:</span>
                 <span class="status-value" id="scanStatus">In attesa</span>
             </div>
@@ -494,13 +498,37 @@
             setupEventListeners();
         }
 
-        function initCompass() {
-            if ('ondeviceorientationabsolute' in window) {
+        async function initCompass() {
+            // iOS 13+ requires permission
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try {
+                    const permission = await DeviceOrientationEvent.requestPermission();
+                    if (permission === 'granted') {
+                        window.addEventListener('deviceorientation', handleOrientation, true);
+                        console.log('iOS compass permission granted');
+                        document.getElementById('compassStatus').textContent = 'Attesa dati...';
+                    } else {
+                        console.warn('iOS compass permission denied');
+                        document.getElementById('compassStatus').textContent = 'Permesso negato';
+                        document.getElementById('compassStatus').style.color = '#ff5252';
+                    }
+                } catch (error) {
+                    console.error('Errore richiesta permesso bussola iOS:', error);
+                    document.getElementById('compassStatus').textContent = 'Errore permesso';
+                    document.getElementById('compassStatus').style.color = '#ff5252';
+                }
+            } else if ('ondeviceorientationabsolute' in window) {
                 window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+                console.log('Compass initialized (deviceorientationabsolute)');
+                document.getElementById('compassStatus').textContent = 'Attesa dati...';
             } else if ('ondeviceorientation' in window) {
                 window.addEventListener('deviceorientation', handleOrientation, true);
+                console.log('Compass initialized (deviceorientation)');
+                document.getElementById('compassStatus').textContent = 'Attesa dati...';
             } else {
                 console.warn('Device orientation not supported');
+                document.getElementById('compassStatus').textContent = 'Non supportato';
+                document.getElementById('compassStatus').style.color = '#ff5252';
             }
         }
 
@@ -508,9 +536,13 @@
             if (event.webkitCompassHeading !== undefined) {
                 // iOS
                 currentHeading = event.webkitCompassHeading;
+                document.getElementById('compassStatus').textContent = `${Math.round(currentHeading)}°`;
+                document.getElementById('compassStatus').style.color = '#4CAF50';
             } else if (event.alpha !== null) {
                 // Android
                 currentHeading = 360 - event.alpha;
+                document.getElementById('compassStatus').textContent = `${Math.round(currentHeading)}°`;
+                document.getElementById('compassStatus').style.color = '#4CAF50';
             }
         }
 
@@ -728,8 +760,15 @@
             flash.classList.add('flash');
             setTimeout(() => flash.classList.remove('flash'), 100);
 
-            // Capture current canvas and compress
-            compressCanvasImage(canvas, 0.7, (compressedData) => {
+            // Create a clean canvas from VIDEO (not the canvas with features drawn)
+            const cleanCanvas = document.createElement('canvas');
+            cleanCanvas.width = video.videoWidth;
+            cleanCanvas.height = video.videoHeight;
+            const cleanCtx = cleanCanvas.getContext('2d');
+            cleanCtx.drawImage(video, 0, 0);
+
+            // Capture clean video frame and compress
+            compressCanvasImage(cleanCanvas, 0.7, (compressedData) => {
                 if (type === 'detection') {
                     detectionMarkerData = compressedData;
                     document.getElementById('detectionImg').src = compressedData;
@@ -784,14 +823,19 @@
             if (currentLatitude !== null && currentLongitude !== null) {
                 document.getElementById('latitude').value = currentLatitude.toFixed(6);
                 document.getElementById('longitude').value = currentLongitude.toFixed(6);
+                console.log('Auto-filled GPS:', currentLatitude, currentLongitude);
             }
             // Auto-fill altitude if available
             if (currentAltitude !== null && !isNaN(currentAltitude)) {
                 document.getElementById('altitude').value = Math.round(currentAltitude);
+                console.log('Auto-filled altitude:', currentAltitude);
             }
             // Auto-fill facing direction (camera heading when form opened)
-            if (currentHeading !== null) {
+            if (currentHeading !== null && !isNaN(currentHeading)) {
                 document.getElementById('facingDirection').value = Math.round(currentHeading);
+                console.log('Auto-filled heading:', currentHeading);
+            } else {
+                console.warn('Heading not available for auto-fill. currentHeading =', currentHeading);
             }
             document.getElementById('saveForm').classList.add('show');
         }
