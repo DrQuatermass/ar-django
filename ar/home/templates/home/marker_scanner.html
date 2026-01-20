@@ -428,7 +428,7 @@
         </div>
     </div>
 
-    <script src="https://docs.opencv.org/4.5.2/opencv.js"></script>
+    <script src="https://docs.opencv.org/4.5.2/opencv.js" async></script>
     <script>
         let video, canvas, ctx;
         let scanning = false;
@@ -457,16 +457,54 @@
                 alert('Errore accesso fotocamera: ' + error.message);
             }
 
-            // Wait for OpenCV
-            if (typeof cv !== 'undefined') {
-                cv.onRuntimeInitialized = () => {
-                    opencvReady = true;
-                    document.getElementById('opencvStatus').textContent = 'Pronto ✓';
-                    document.getElementById('loadingOverlay').classList.add('hidden');
-                };
-            }
+            // Wait for OpenCV with polling and timeout
+            waitForOpenCV();
 
             setupEventListeners();
+        }
+
+        function waitForOpenCV() {
+            let attempts = 0;
+            const maxAttempts = 100; // 10 seconds
+
+            const checkOpenCV = setInterval(() => {
+                attempts++;
+
+                if (typeof cv !== 'undefined' && cv.Mat) {
+                    clearInterval(checkOpenCV);
+
+                    // Set up callback if not already initialized
+                    if (!opencvReady) {
+                        cv['onRuntimeInitialized'] = () => {
+                            onOpenCVReady();
+                        };
+
+                        // Check if already initialized
+                        try {
+                            const testMat = new cv.Mat();
+                            testMat.delete();
+                            onOpenCVReady();
+                        } catch (e) {
+                            // Not ready yet, callback will fire
+                        }
+                    }
+                } else if (attempts >= maxAttempts) {
+                    clearInterval(checkOpenCV);
+                    document.getElementById('loadingText').textContent = 'Errore caricamento OpenCV. Ricarica la pagina.';
+                    document.getElementById('loadingText').style.color = '#ff5252';
+                } else {
+                    document.getElementById('loadingText').textContent = `Caricamento OpenCV.js... (${attempts}%)`;
+                }
+            }, 100);
+        }
+
+        function onOpenCVReady() {
+            if (opencvReady) return; // Prevent double initialization
+
+            opencvReady = true;
+            document.getElementById('opencvStatus').textContent = 'Pronto ✓';
+            document.getElementById('loadingOverlay').classList.add('hidden');
+            console.log('OpenCV.js ready!');
         }
 
         function setupEventListeners() {
