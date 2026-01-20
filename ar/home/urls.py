@@ -7,6 +7,6 @@ urlpatterns = [
     path('', views.camera_view, name='camera'),
     path('simple/', views.camera_simple_view, name='camera_simple'),
     path('api/characters/', views.get_character_data, name='character_data'),
-    path('admin/marker-scanner/', views.marker_scanner_view, name='marker_scanner'),
+    path('marker-scanner/', views.marker_scanner_view, name='marker_scanner'),
     path('api/save-marker-scan/', views.save_marker_scan, name='save_marker_scan'),
 ]
