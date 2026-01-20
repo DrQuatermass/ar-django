@@ -2073,9 +2073,11 @@
                             const scaleY = window.innerHeight / this.videoElement.videoHeight;
 
                             const pixelsPerMeter = markerWidth * scaleX / 0.3;
+                            // INVERTI gli offset perché il marker è davanti alla camera
+                            // ma il personaggio deve apparire DIETRO il marker (dalla prospettiva camera)
                             screenPosition = {
-                                x: (markerX * scaleX) + (character.marker_offset_x * pixelsPerMeter),
-                                y: (markerY * scaleY) + (character.marker_offset_y * pixelsPerMeter),
+                                x: (markerX * scaleX) - (character.marker_offset_x * pixelsPerMeter),
+                                y: (markerY * scaleY) - (character.marker_offset_y * pixelsPerMeter),
                                 visible: true
                             };
 
