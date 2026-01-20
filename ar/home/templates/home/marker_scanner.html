@@ -647,26 +647,55 @@
             flash.classList.add('flash');
             setTimeout(() => flash.classList.remove('flash'), 100);
 
-            // Capture current canvas as base64
-            const imageData = canvas.toDataURL('image/png');
+            // Capture current canvas and compress
+            compressCanvasImage(canvas, 0.7, (compressedData) => {
+                if (type === 'detection') {
+                    detectionMarkerData = compressedData;
+                    document.getElementById('detectionImg').src = compressedData;
+                    document.getElementById('detectionPreview').classList.add('captured');
+                } else {
+                    positioningMarkerData = compressedData;
+                    document.getElementById('positioningImg').src = compressedData;
+                    document.getElementById('positioningPreview').classList.add('captured');
+                }
 
-            if (type === 'detection') {
-                detectionMarkerData = imageData;
-                document.getElementById('detectionImg').src = imageData;
-                document.getElementById('detectionPreview').classList.add('captured');
-            } else {
-                positioningMarkerData = imageData;
-                document.getElementById('positioningImg').src = imageData;
-                document.getElementById('positioningPreview').classList.add('captured');
+                // Show preview panel
+                document.getElementById('markerPreview').classList.add('show');
+
+                // Enable save button if both markers captured
+                if (detectionMarkerData && positioningMarkerData) {
+                    document.getElementById('btnSave').disabled = false;
+                }
+            });
+        }
+
+        function compressCanvasImage(canvas, quality, callback) {
+            // Create a temporary canvas for resizing
+            const maxWidth = 1280;
+            const maxHeight = 720;
+
+            let width = canvas.width;
+            let height = canvas.height;
+
+            // Calculate new dimensions maintaining aspect ratio
+            if (width > maxWidth || height > maxHeight) {
+                const ratio = Math.min(maxWidth / width, maxHeight / height);
+                width = Math.floor(width * ratio);
+                height = Math.floor(height * ratio);
             }
 
-            // Show preview panel
-            document.getElementById('markerPreview').classList.add('show');
+            // Create temporary canvas for resizing
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = width;
+            tempCanvas.height = height;
+            const tempCtx = tempCanvas.getContext('2d');
 
-            // Enable save button if both markers captured
-            if (detectionMarkerData && positioningMarkerData) {
-                document.getElementById('btnSave').disabled = false;
-            }
+            // Draw resized image
+            tempCtx.drawImage(canvas, 0, 0, width, height);
+
+            // Convert to JPEG with compression
+            const compressedData = tempCanvas.toDataURL('image/jpeg', quality);
+            callback(compressedData);
         }
 
         function showSaveForm() {
