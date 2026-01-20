@@ -239,6 +239,83 @@
             z-index: 15;
         }
 
+        /* Direction Compass */
+        #direction-compass {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 200px;
+            height: 200px;
+            pointer-events: none;
+            z-index: 20;
+            display: none;
+        }
+
+        #direction-compass.visible {
+            display: block;
+        }
+
+        .compass-circle {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+
+        .compass-arrow {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            transform-origin: 0 0;
+            transition: transform 0.3s ease-out;
+        }
+
+        .compass-arrow::before {
+            content: '▲';
+            position: absolute;
+            font-size: 40px;
+            color: #4CAF50;
+            text-shadow: 0 0 10px rgba(76, 175, 80, 0.8);
+            transform: translate(-50%, -100%);
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: translate(-50%, -100%) scale(1); }
+            50% { opacity: 0.6; transform: translate(-50%, -100%) scale(1.2); }
+        }
+
+        .compass-label {
+            position: absolute;
+            top: -30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(76, 175, 80, 0.9);
+            color: white;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            white-space: nowrap;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .compass-distance {
+            position: absolute;
+            bottom: -35px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            text-shadow: 0 2px 5px rgba(0, 0, 0, 0.7);
+        }
+
         #marker-debug-overlay {
             position: fixed;
             top: 10px;
@@ -296,6 +373,14 @@
     <div id="camera-container">
         <video id="camera-stream" autoplay playsinline></video>
         <div id="ar-overlay"></div>
+
+        <!-- Direction Compass -->
+        <div id="direction-compass">
+            <div class="compass-circle"></div>
+            <div class="compass-label" id="compass-label">Gira il telefono</div>
+            <div class="compass-arrow" id="compass-arrow"></div>
+            <div class="compass-distance" id="compass-distance"></div>
+        </div>
     </div>
 
     <div id="controls">
@@ -709,6 +794,7 @@
                 const updateLoop = () => {
                     this.updateSmoothPositions();
                     this.updateAnchoredCharacters(); // Aggiorna anche character ancorati
+                    this.updateDirectionCompass(); // Aggiorna bussola direzionale
                     requestAnimationFrame(updateLoop);
                 };
                 requestAnimationFrame(updateLoop);
@@ -765,6 +851,90 @@
                         }
                     }
                 });
+            }
+
+            updateDirectionCompass() {
+                // Mostra bussola per character fuori FOV
+                const compass = document.getElementById('direction-compass');
+                if (!compass || !this.currentPosition) return;
+
+                // Trova il character più vicino fuori FOV
+                let closestOutOfView = null;
+                let closestDistance = Infinity;
+
+                this.characters.forEach(character => {
+                    // Salta character già visibili
+                    const charDiv = document.querySelector(`[data-character-id="${character.id}"]`);
+                    if (charDiv && charDiv.style.opacity !== '0') return;
+
+                    // Calcola distanza e bearing
+                    const distance = this.calculateDistance(
+                        this.currentPosition.coords.latitude,
+                        this.currentPosition.coords.longitude,
+                        character.target_latitude,
+                        character.target_longitude
+                    );
+
+                    // Solo se dentro activation_distance
+                    if (distance < character.activation_distance && distance < closestDistance) {
+                        const bearing = this.calculateBearing(
+                            this.currentPosition.coords.latitude,
+                            this.currentPosition.coords.longitude,
+                            character.target_latitude,
+                            character.target_longitude
+                        );
+
+                        closestDistance = distance;
+                        closestOutOfView = {
+                            character: character,
+                            distance: distance,
+                            bearing: bearing
+                        };
+                    }
+                });
+
+                if (closestOutOfView) {
+                    // Mostra bussola
+                    compass.classList.add('visible');
+
+                    // Calcola angolo relativo alla camera
+                    let relativeBearing = (closestOutOfView.bearing - this.currentHeading + 360) % 360;
+                    if (relativeBearing > 180) {
+                        relativeBearing -= 360;
+                    }
+
+                    // Aggiorna freccia
+                    const arrow = document.getElementById('compass-arrow');
+                    arrow.style.transform = `rotate(${relativeBearing}deg)`;
+
+                    // Aggiorna label
+                    const label = document.getElementById('compass-label');
+                    const directionText = this.getDirectionText(relativeBearing);
+                    label.textContent = `${closestOutOfView.character.name} ${directionText}`;
+
+                    // Aggiorna distanza
+                    const distanceEl = document.getElementById('compass-distance');
+                    distanceEl.textContent = `${Math.round(closestOutOfView.distance)}m`;
+                } else {
+                    // Nascondi bussola
+                    compass.classList.remove('visible');
+                }
+            }
+
+            getDirectionText(angle) {
+                // Converti angolo in testo direzionale
+                const absAngle = Math.abs(angle);
+                if (absAngle < 15) return '↑ Davanti';
+                if (absAngle > 165) return '↓ Dietro';
+                if (angle > 0) {
+                    if (angle < 80) return '↗ Destra';
+                    if (angle < 100) return '→ Destra';
+                    return '↘ Destra Dietro';
+                } else {
+                    if (angle > -80) return '↖ Sinistra';
+                    if (angle > -100) return '← Sinistra';
+                    return '↙ Sinistra Dietro';
+                }
             }
 
             updateSmoothPositions() {
