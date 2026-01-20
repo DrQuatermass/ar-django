@@ -2074,25 +2074,23 @@
 
                             const pixelsPerMeter = markerWidth * scaleX / 0.3;
 
-                            // Usa facing_direction per capire da che lato stai guardando il marker
-                            // Se la differenza tra heading attuale e facing salvato è ~180°,
-                            // stai guardando da dietro → inverti gli offset
-                            let headingDiff = 0;
-                            if (this.currentHeading !== null && character.facing_direction !== null) {
-                                headingDiff = Math.abs(this.currentHeading - character.facing_direction);
-                                if (headingDiff > 180) headingDiff = 360 - headingDiff;
-                            }
+                            // IMPORTANTE: Gli offset sono dal punto di vista del MARKER quando lo catturi,
+                            // ma la camera guarda il marker dal lato OPPOSTO.
+                            // Quindi: offset_z positivo (davanti al marker) = DIETRO la camera
+                            //         offset_x positivo (destra del marker) = SINISTRA della camera
 
-                            // Se guardi da direzione opposta (>90° di differenza), inverti offset
-                            const isOppositeDirection = headingDiff > 90;
-                            const xMultiplier = isOppositeDirection ? -1 : 1;
-                            const zMultiplier = isOppositeDirection ? -1 : 1;
+                            // SOLUZIONE: Inverti sempre X e Z per convertire da marker-space a camera-space
+                            const offsetX_cameraSpace = -character.marker_offset_x;
+                            const offsetY_cameraSpace = character.marker_offset_y; // Y rimane uguale (alto/basso)
+                            const offsetZ_cameraSpace = -character.marker_offset_z; // Z invertito (profondità)
 
-                            console.log(`🧭 Facing check: current=${this.currentHeading?.toFixed(0)}°, saved=${character.facing_direction?.toFixed(0)}°, diff=${headingDiff.toFixed(0)}°, opposite=${isOppositeDirection}`);
+                            console.log(`📐 Offsets: marker-space=(${character.marker_offset_x}, ${character.marker_offset_y}, ${character.marker_offset_z}) → camera-space=(${offsetX_cameraSpace}, ${offsetY_cameraSpace}, ${offsetZ_cameraSpace})`);
 
+                            // NOTA: offsetZ influenza lo SCALE (più lontano = più piccolo), non la posizione X/Y
+                            // Per ora ignoriamo Z (da implementare in futuro con perspective projection)
                             screenPosition = {
-                                x: (markerX * scaleX) + (character.marker_offset_x * pixelsPerMeter * xMultiplier),
-                                y: (markerY * scaleY) + (character.marker_offset_y * pixelsPerMeter),
+                                x: (markerX * scaleX) + (offsetX_cameraSpace * pixelsPerMeter),
+                                y: (markerY * scaleY) + (offsetY_cameraSpace * pixelsPerMeter),
                                 visible: true
                             };
 
