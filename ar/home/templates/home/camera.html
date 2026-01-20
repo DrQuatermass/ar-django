@@ -2073,11 +2073,26 @@
                             const scaleY = window.innerHeight / this.videoElement.videoHeight;
 
                             const pixelsPerMeter = markerWidth * scaleX / 0.3;
-                            // INVERTI gli offset perché il marker è davanti alla camera
-                            // ma il personaggio deve apparire DIETRO il marker (dalla prospettiva camera)
+
+                            // Usa facing_direction per capire da che lato stai guardando il marker
+                            // Se la differenza tra heading attuale e facing salvato è ~180°,
+                            // stai guardando da dietro → inverti gli offset
+                            let headingDiff = 0;
+                            if (this.currentHeading !== null && character.facing_direction !== null) {
+                                headingDiff = Math.abs(this.currentHeading - character.facing_direction);
+                                if (headingDiff > 180) headingDiff = 360 - headingDiff;
+                            }
+
+                            // Se guardi da direzione opposta (>90° di differenza), inverti offset
+                            const isOppositeDirection = headingDiff > 90;
+                            const xMultiplier = isOppositeDirection ? -1 : 1;
+                            const zMultiplier = isOppositeDirection ? -1 : 1;
+
+                            console.log(`🧭 Facing check: current=${this.currentHeading?.toFixed(0)}°, saved=${character.facing_direction?.toFixed(0)}°, diff=${headingDiff.toFixed(0)}°, opposite=${isOppositeDirection}`);
+
                             screenPosition = {
-                                x: (markerX * scaleX) - (character.marker_offset_x * pixelsPerMeter),
-                                y: (markerY * scaleY) - (character.marker_offset_y * pixelsPerMeter),
+                                x: (markerX * scaleX) + (character.marker_offset_x * pixelsPerMeter * xMultiplier),
+                                y: (markerY * scaleY) + (character.marker_offset_y * pixelsPerMeter),
                                 visible: true
                             };
 
