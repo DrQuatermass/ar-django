@@ -131,6 +131,7 @@ def save_marker_scan(request):
             positioning_marker_data = data.get('positioning_marker')
             latitude = data.get('latitude')
             longitude = data.get('longitude')
+            facing_direction = data.get('facing_direction', 0)
 
             if not all([character_name, detection_marker_data, positioning_marker_data]):
                 return JsonResponse({'error': 'Missing required fields'}, status=400)
@@ -141,6 +142,7 @@ def save_marker_scan(request):
                 target_latitude=latitude or 0,
                 target_longitude=longitude or 0,
                 activation_distance=50,
+                facing_direction=facing_direction,
                 use_marker=True
             )
 

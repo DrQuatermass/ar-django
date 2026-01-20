@@ -419,6 +419,13 @@
             <input type="text" id="characterName" placeholder="Es: Pikachu, Drago, ecc." required>
         </div>
         <div class="form-group">
+            <label for="facingDirection">Direzione Character (gradi):</label>
+            <input type="number" id="facingDirection" step="any" min="0" max="360" placeholder="0-360">
+            <div style="font-size: 11px; color: #888; margin-top: 5px;">
+                0° = Nord, 90° = Est, 180° = Sud, 270° = Ovest
+            </div>
+        </div>
+        <div class="form-group">
             <label for="latitude">Latitudine (auto-rilevata):</label>
             <input type="number" id="latitude" step="any" placeholder="Es: 45.4642">
         </div>
@@ -445,6 +452,7 @@
         let animationFrameId = null;
         let currentLatitude = null;
         let currentLongitude = null;
+        let currentHeading = null;
 
         // Initialize camera and OpenCV
         async function init() {
@@ -469,10 +477,33 @@
             // Start GPS tracking
             initGPS();
 
+            // Start compass tracking
+            initCompass();
+
             // Wait for OpenCV with polling and timeout
             waitForOpenCV();
 
             setupEventListeners();
+        }
+
+        function initCompass() {
+            if ('ondeviceorientationabsolute' in window) {
+                window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+            } else if ('ondeviceorientation' in window) {
+                window.addEventListener('deviceorientation', handleOrientation, true);
+            } else {
+                console.warn('Device orientation not supported');
+            }
+        }
+
+        function handleOrientation(event) {
+            if (event.webkitCompassHeading !== undefined) {
+                // iOS
+                currentHeading = event.webkitCompassHeading;
+            } else if (event.alpha !== null) {
+                // Android
+                currentHeading = 360 - event.alpha;
+            }
         }
 
         function initGPS() {
@@ -744,6 +775,10 @@
                 document.getElementById('latitude').value = currentLatitude.toFixed(6);
                 document.getElementById('longitude').value = currentLongitude.toFixed(6);
             }
+            // Auto-fill facing direction (camera heading when form opened)
+            if (currentHeading !== null) {
+                document.getElementById('facingDirection').value = Math.round(currentHeading);
+            }
             document.getElementById('saveForm').classList.add('show');
         }
 
@@ -760,6 +795,7 @@
 
             const latitude = parseFloat(document.getElementById('latitude').value) || null;
             const longitude = parseFloat(document.getElementById('longitude').value) || null;
+            const facingDirection = parseFloat(document.getElementById('facingDirection').value) || 0;
 
             document.getElementById('loadingOverlay').classList.remove('hidden');
             document.getElementById('loadingText').textContent = 'Salvataggio in corso...';
@@ -775,7 +811,8 @@
                         detection_marker: detectionMarkerData,
                         positioning_marker: positioningMarkerData,
                         latitude: latitude,
-                        longitude: longitude
+                        longitude: longitude,
+                        facing_direction: facingDirection
                     })
                 });
 
