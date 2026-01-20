@@ -1,7 +1,11 @@
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.http import JsonResponse
+from django.contrib.admin.views.decorators import staff_member_required
+from django.views.decorators.csrf import csrf_exempt
+from django.core.files.base import ContentFile
 from .models import CharConfiguration
 import json
+import base64
 
 # Create your views here.
 
@@ -102,5 +106,81 @@ def get_character_data(request):
             character_data.append(data)
 
         return JsonResponse({'characters': character_data})
+
+    return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+@staff_member_required
+def marker_scanner_view(request):
+    """
+    Admin-only view for scanning environment and identifying good marker points
+    """
+    return render(request, 'home/marker_scanner.html')
+
+@staff_member_required
+@csrf_exempt
+def save_marker_scan(request):
+    """
+    API endpoint to save scanned marker images and create character configuration
+    """
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+
+            character_name = data.get('character_name')
+            detection_marker_data = data.get('detection_marker')
+            positioning_marker_data = data.get('positioning_marker')
+            latitude = data.get('latitude')
+            longitude = data.get('longitude')
+
+            if not all([character_name, detection_marker_data, positioning_marker_data]):
+                return JsonResponse({'error': 'Missing required fields'}, status=400)
+
+            # Create new character configuration
+            char_config = CharConfiguration.objects.create(
+                name=character_name,
+                target_latitude=latitude or 0,
+                target_longitude=longitude or 0,
+                activation_distance=50,
+                use_marker=True
+            )
+
+            # Save detection marker image
+            if detection_marker_data:
+                format, imgstr = detection_marker_data.split(';base64,')
+                ext = format.split('/')[-1]
+                detection_file = ContentFile(
+                    base64.b64decode(imgstr),
+                    name=f'detection_marker_{char_config.id}.{ext}'
+                )
+                char_config.marker_image.save(
+                    f'detection_marker_{char_config.id}.{ext}',
+                    detection_file,
+                    save=False
+                )
+
+            # Save positioning marker image
+            if positioning_marker_data:
+                format, imgstr = positioning_marker_data.split(';base64,')
+                ext = format.split('/')[-1]
+                positioning_file = ContentFile(
+                    base64.b64decode(imgstr),
+                    name=f'positioning_marker_{char_config.id}.{ext}'
+                )
+                char_config.positioning_marker_image.save(
+                    f'positioning_marker_{char_config.id}.{ext}',
+                    positioning_file,
+                    save=False
+                )
+
+            char_config.save()
+
+            return JsonResponse({
+                'success': True,
+                'character_id': char_config.id,
+                'message': f'Character "{character_name}" created successfully'
+            })
+
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
 
     return JsonResponse({'error': 'Method not allowed'}, status=405)
