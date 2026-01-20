@@ -433,8 +433,15 @@
             <label for="longitude">Longitudine (auto-rilevata):</label>
             <input type="number" id="longitude" step="any" placeholder="Es: 9.1900">
         </div>
+        <div class="form-group">
+            <label for="altitude">Altitudine s.l.m. (auto-rilevata):</label>
+            <input type="number" id="altitude" step="any" placeholder="Es: 120">
+            <div style="font-size: 11px; color: #888; margin-top: 5px;">
+                Metri sul livello del mare (opzionale)
+            </div>
+        </div>
         <div style="font-size: 12px; color: #aaa; margin-bottom: 15px;">
-            💡 Le coordinate GPS vengono rilevate automaticamente. Puoi modificarle manualmente se necessario.
+            💡 Le coordinate GPS e altitudine vengono rilevate automaticamente. Puoi modificarle manualmente se necessario.
         </div>
         <div class="form-buttons">
             <button id="btnCancelSave" class="btn-primary" style="flex: 0.5;">Annulla</button>
@@ -452,6 +459,7 @@
         let animationFrameId = null;
         let currentLatitude = null;
         let currentLongitude = null;
+        let currentAltitude = null;
         let currentHeading = null;
 
         // Initialize camera and OpenCV
@@ -512,9 +520,11 @@
                     (position) => {
                         currentLatitude = position.coords.latitude;
                         currentLongitude = position.coords.longitude;
+                        currentAltitude = position.coords.altitude; // Can be null if unavailable
                         const accuracy = position.coords.accuracy.toFixed(0);
-                        document.getElementById('gpsStatus').textContent = `Attivo (±${accuracy}m)`;
-                        console.log(`GPS updated: ${currentLatitude}, ${currentLongitude}`);
+                        const altText = currentAltitude !== null ? ` | Alt: ${Math.round(currentAltitude)}m` : '';
+                        document.getElementById('gpsStatus').textContent = `Attivo (±${accuracy}m)${altText}`;
+                        console.log(`GPS updated: ${currentLatitude}, ${currentLongitude}, altitude: ${currentAltitude}m`);
                     },
                     (error) => {
                         document.getElementById('gpsStatus').textContent = 'Non disponibile';
@@ -775,6 +785,10 @@
                 document.getElementById('latitude').value = currentLatitude.toFixed(6);
                 document.getElementById('longitude').value = currentLongitude.toFixed(6);
             }
+            // Auto-fill altitude if available
+            if (currentAltitude !== null && !isNaN(currentAltitude)) {
+                document.getElementById('altitude').value = Math.round(currentAltitude);
+            }
             // Auto-fill facing direction (camera heading when form opened)
             if (currentHeading !== null) {
                 document.getElementById('facingDirection').value = Math.round(currentHeading);
@@ -795,6 +809,7 @@
 
             const latitude = parseFloat(document.getElementById('latitude').value) || null;
             const longitude = parseFloat(document.getElementById('longitude').value) || null;
+            const altitude = parseFloat(document.getElementById('altitude').value) || null;
             const facingDirection = parseFloat(document.getElementById('facingDirection').value) || 0;
 
             document.getElementById('loadingOverlay').classList.remove('hidden');
@@ -812,6 +827,7 @@
                         positioning_marker: positioningMarkerData,
                         latitude: latitude,
                         longitude: longitude,
+                        altitude: altitude,
                         facing_direction: facingDirection
                     })
                 });
