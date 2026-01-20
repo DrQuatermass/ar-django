@@ -360,6 +360,10 @@
                 <span class="status-value" id="opencvStatus">Caricamento...</span>
             </div>
             <div class="status-item">
+                <span class="status-label">GPS:</span>
+                <span class="status-value" id="gpsStatus">Ricerca...</span>
+            </div>
+            <div class="status-item">
                 <span class="status-label">Scansione:</span>
                 <span class="status-value" id="scanStatus">In attesa</span>
             </div>
@@ -415,12 +419,15 @@
             <input type="text" id="characterName" placeholder="Es: Pikachu, Drago, ecc." required>
         </div>
         <div class="form-group">
-            <label for="latitude">Latitudine (opzionale):</label>
+            <label for="latitude">Latitudine (auto-rilevata):</label>
             <input type="number" id="latitude" step="any" placeholder="Es: 45.4642">
         </div>
         <div class="form-group">
-            <label for="longitude">Longitudine (opzionale):</label>
+            <label for="longitude">Longitudine (auto-rilevata):</label>
             <input type="number" id="longitude" step="any" placeholder="Es: 9.1900">
+        </div>
+        <div style="font-size: 12px; color: #aaa; margin-bottom: 15px;">
+            💡 Le coordinate GPS vengono rilevate automaticamente. Puoi modificarle manualmente se necessario.
         </div>
         <div class="form-buttons">
             <button id="btnCancelSave" class="btn-primary" style="flex: 0.5;">Annulla</button>
@@ -436,6 +443,8 @@
         let detectionMarkerData = null;
         let positioningMarkerData = null;
         let animationFrameId = null;
+        let currentLatitude = null;
+        let currentLongitude = null;
 
         // Initialize camera and OpenCV
         async function init() {
@@ -457,10 +466,41 @@
                 alert('Errore accesso fotocamera: ' + error.message);
             }
 
+            // Start GPS tracking
+            initGPS();
+
             // Wait for OpenCV with polling and timeout
             waitForOpenCV();
 
             setupEventListeners();
+        }
+
+        function initGPS() {
+            if ('geolocation' in navigator) {
+                navigator.geolocation.watchPosition(
+                    (position) => {
+                        currentLatitude = position.coords.latitude;
+                        currentLongitude = position.coords.longitude;
+                        const accuracy = position.coords.accuracy.toFixed(0);
+                        document.getElementById('gpsStatus').textContent = `Attivo (±${accuracy}m)`;
+                        console.log(`GPS updated: ${currentLatitude}, ${currentLongitude}`);
+                    },
+                    (error) => {
+                        document.getElementById('gpsStatus').textContent = 'Non disponibile';
+                        document.getElementById('gpsStatus').style.color = '#ff5252';
+                        console.warn('GPS error:', error.message);
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        maximumAge: 5000,
+                        timeout: 10000
+                    }
+                );
+            } else {
+                document.getElementById('gpsStatus').textContent = 'Non supportato';
+                document.getElementById('gpsStatus').style.color = '#ff5252';
+                console.warn('Geolocation not supported');
+            }
         }
 
         function waitForOpenCV() {
@@ -699,6 +739,11 @@
         }
 
         function showSaveForm() {
+            // Auto-fill GPS coordinates if available
+            if (currentLatitude !== null && currentLongitude !== null) {
+                document.getElementById('latitude').value = currentLatitude.toFixed(6);
+                document.getElementById('longitude').value = currentLongitude.toFixed(6);
+            }
             document.getElementById('saveForm').classList.add('show');
         }
 
