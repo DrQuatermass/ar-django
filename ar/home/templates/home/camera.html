@@ -718,12 +718,33 @@
                 // Aggiorna posizioni di character con anchor in base a movimenti camera
                 if (!this.currentPosition || !this.positionAnchors.size) return;
 
+                const overlay = document.getElementById('ar-overlay');
+                if (!overlay) return;
+
+                const now = Date.now();
+                const ANCHOR_TIMEOUT = 10000; // 10 secondi senza marker detection = cancella anchor
+
                 this.positionAnchors.forEach((anchor, charId) => {
                     const character = this.characters.find(c => c.id === charId);
                     if (!character) return;
 
+                    // Se marker detection perso da troppo tempo, cancella anchor
+                    const hasDetectionMarker = this.detectedMarkers.has(charId);
+                    if (!hasDetectionMarker && (now - anchor.lastUpdate) > ANCHOR_TIMEOUT) {
+                        this.positionAnchors.delete(charId);
+                        const characterDiv = overlay.querySelector(`[data-character-id="${charId}"]`);
+                        if (characterDiv) {
+                            characterDiv.style.opacity = '0';
+                        }
+                        console.log(`🗑️ Anchor deleted for ${character.name}: no marker detection for ${ANCHOR_TIMEOUT/1000}s`);
+                        return;
+                    }
+
                     // Calcola nuova posizione schermo dall'anchor
                     const screenPosition = this.calculateAnchoredPosition(anchor, character);
+
+                    const characterDiv = overlay.querySelector(`[data-character-id="${charId}"]`);
+                    if (!characterDiv) return;
 
                     if (screenPosition && screenPosition.visible) {
                         // Aggiorna TARGET position per interpolazione smooth
@@ -732,6 +753,15 @@
                             smoothPos.targetX = screenPosition.x;
                             smoothPos.targetY = screenPosition.y;
                             smoothPos.targetScale = screenPosition.scale;
+                        }
+                        // Mostra personaggio se nascosto
+                        if (characterDiv.style.opacity === '0') {
+                            characterDiv.style.opacity = '1';
+                        }
+                    } else {
+                        // Fuori FOV - nascondi personaggio
+                        if (characterDiv.style.opacity !== '0') {
+                            characterDiv.style.opacity = '0';
                         }
                     }
                 });
