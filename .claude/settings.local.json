@@ -14,7 +14,8 @@
       "Bash(python manage.py shell:*)",
       "Bash(timeout 5 tail:*)",
       "Bash(ssh -o StrictHostKeyChecking=no root@94.177.170.48 \"cd /var/www/ar_django && git pull && source venv/bin/activate && cd ar && python manage.py collectstatic --noinput && sudo systemctl restart gunicorn && sudo systemctl restart apache2 && echo ''✅ Deployment completato''\")",
-      "Bash(ssh -o StrictHostKeyChecking=no root@94.177.170.48 \"systemctl restart gunicorn && systemctl restart apache2 && systemctl status gunicorn | head -10\")"
+      "Bash(ssh -o StrictHostKeyChecking=no root@94.177.170.48 \"systemctl restart gunicorn && systemctl restart apache2 && systemctl status gunicorn | head -10\")",
+      "Bash(sshpass -p 'Xrhnert67!123456789' ssh -o StrictHostKeyChecking=no root@94.177.170.48 \"cd /var/www/ar_django && git pull && systemctl restart gunicorn && systemctl restart apache2 && echo ''✅ Deployment completato''\")"
     ],
     "deny": [],
     "ask": []

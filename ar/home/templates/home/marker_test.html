@@ -21,6 +21,17 @@
             border-radius: 10px;
             margin-bottom: 20px;
         }
+        select {
+            display: block;
+            margin: 10px 0;
+            padding: 10px;
+            background: #3a3a3a;
+            border: 1px solid #555;
+            border-radius: 5px;
+            color: white;
+            width: 100%;
+            font-size: 16px;
+        }
         input[type="file"] {
             display: block;
             margin: 10px 0;
@@ -65,23 +76,71 @@
             border-radius: 5px;
             background: #3a3a3a;
         }
+        .tab-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .tab-button {
+            flex: 1;
+            padding: 15px;
+            background: #3a3a3a;
+            border: 2px solid #555;
+            color: white;
+            cursor: pointer;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        .tab-button.active {
+            background: #4CAF50;
+            border-color: #4CAF50;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🔍 Test Qualità Marker</h1>
-        <p>Carica i tuoi marker per verificare se sono adatti al rilevamento OpenCV</p>
+        <p>Testa i marker dal database o carica nuove immagini</p>
 
-        <div class="marker-upload">
-            <h3>Detection Marker (100+ matches richiesti)</h3>
-            <input type="file" id="detectionMarker" accept="image/*">
-            <button onclick="testMarker('detection')" id="testDetectionBtn" disabled>Testa Detection Marker</button>
+        <div class="tab-buttons">
+            <button class="tab-button active" onclick="switchTab('database')">📊 Test dal Database</button>
+            <button class="tab-button" onclick="switchTab('upload')">📤 Carica File</button>
         </div>
 
-        <div class="marker-upload">
-            <h3>Positioning Marker (40+ matches richiesti)</h3>
-            <input type="file" id="positioningMarker" accept="image/*">
-            <button onclick="testMarker('positioning')" id="testPositioningBtn" disabled>Testa Positioning Marker</button>
+        <!-- Tab Database -->
+        <div id="database-tab" class="tab-content active">
+            <div class="marker-upload">
+                <h3>Seleziona Character dal Database</h3>
+                <select id="characterSelect" onchange="loadCharacterMarkers()">
+                    <option value="">-- Seleziona un character --</option>
+                </select>
+                <div id="characterInfo" style="margin-top: 15px; display: none;">
+                    <p><strong>Character:</strong> <span id="charName"></span></p>
+                    <p><strong>Marker Config:</strong> <span id="charConfig"></span></p>
+                    <button onclick="testCharacterMarkers()" id="testCharacterBtn" disabled>Testa Entrambi i Marker</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab Upload -->
+        <div id="upload-tab" class="tab-content">
+            <div class="marker-upload">
+                <h3>Detection Marker (100+ matches richiesti)</h3>
+                <input type="file" id="detectionMarker" accept="image/*">
+                <button onclick="testMarker('detection')" id="testDetectionBtn" disabled>Testa Detection Marker</button>
+            </div>
+
+            <div class="marker-upload">
+                <h3>Positioning Marker (40+ matches richiesti)</h3>
+                <input type="file" id="positioningMarker" accept="image/*">
+                <button onclick="testMarker('positioning')" id="testPositioningBtn" disabled>Testa Positioning Marker</button>
+            </div>
         </div>
 
         <div id="results"></div>
@@ -91,6 +150,105 @@
     <script src="https://docs.opencv.org/4.5.2/opencv.js"></script>
     <script>
         let cvReady = false;
+        let characters = [];
+        let currentCharacter = null;
+
+        // Carica characters dal database
+        async function loadCharacters() {
+            try {
+                const response = await fetch('/api/characters/');
+                const data = await response.json();
+                characters = data.characters;
+
+                const select = document.getElementById('characterSelect');
+                characters.forEach(char => {
+                    const option = document.createElement('option');
+                    option.value = char.id;
+                    option.textContent = char.name;
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Errore caricamento characters:', error);
+            }
+        }
+
+        function loadCharacterMarkers() {
+            const select = document.getElementById('characterSelect');
+            const charId = select.value;
+
+            if (!charId) {
+                document.getElementById('characterInfo').style.display = 'none';
+                return;
+            }
+
+            currentCharacter = characters.find(c => c.id == charId);
+
+            document.getElementById('charName').textContent = currentCharacter.name;
+
+            let config = [];
+            if (currentCharacter.marker_image) config.push('Detection Marker ✓');
+            if (currentCharacter.positioning_marker_image) config.push('Positioning Marker ✓');
+            if (currentCharacter.use_marker) config.push('Marker Mode ON');
+
+            document.getElementById('charConfig').textContent = config.join(', ') || 'Nessun marker configurato';
+            document.getElementById('characterInfo').style.display = 'block';
+
+            if (cvReady && (currentCharacter.marker_image || currentCharacter.positioning_marker_image)) {
+                document.getElementById('testCharacterBtn').disabled = false;
+            }
+        }
+
+        async function testCharacterMarkers() {
+            if (!currentCharacter) return;
+
+            document.getElementById('results').innerHTML = '<p>⏳ Caricamento e analisi marker...</p>';
+
+            let results = [];
+
+            // Test Detection Marker
+            if (currentCharacter.marker_image) {
+                const detectionResult = await testMarkerFromUrl(currentCharacter.marker_image, 'detection');
+                results.push(detectionResult);
+            }
+
+            // Test Positioning Marker
+            if (currentCharacter.positioning_marker_image) {
+                const positioningResult = await testMarkerFromUrl(currentCharacter.positioning_marker_image, 'positioning');
+                results.push(positioningResult);
+            }
+
+            // Mostra risultati combinati
+            document.getElementById('results').innerHTML = results.join('<hr style="border-color: #555; margin: 20px 0;">');
+        }
+
+        function testMarkerFromUrl(url, type) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = function() {
+                    const result = analyzeMarker(img, type);
+                    resolve(result);
+                };
+                img.onerror = function() {
+                    resolve(`<div class="status bad"><h3>❌ Errore caricamento ${type} marker</h3><p>Impossibile caricare l'immagine da: ${url}</p></div>`);
+                };
+                img.src = url;
+            });
+        }
+
+        function switchTab(tab) {
+            // Update buttons
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            // Update content
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.getElementById(tab + '-tab').classList.add('active');
+
+            // Clear results
+            document.getElementById('results').innerHTML = '';
+            document.getElementById('canvas').style.display = 'none';
+        }
 
         // Attendi caricamento OpenCV
         function onOpenCvReady() {
@@ -98,6 +256,10 @@
             console.log('✅ OpenCV caricato');
             document.getElementById('testDetectionBtn').disabled = false;
             document.getElementById('testPositioningBtn').disabled = false;
+
+            if (currentCharacter && (currentCharacter.marker_image || currentCharacter.positioning_marker_image)) {
+                document.getElementById('testCharacterBtn').disabled = false;
+            }
         }
 
         // Abilita pulsanti quando file selezionati
@@ -128,7 +290,8 @@
             reader.onload = function(e) {
                 const img = new Image();
                 img.onload = function() {
-                    analyzeMarker(img, type);
+                    const result = analyzeMarker(img, type);
+                    document.getElementById('results').innerHTML = result;
                 };
                 img.src = e.target.result;
             };
@@ -181,8 +344,15 @@
                 className = 'bad';
             }
 
-            // Mostra risultati
-            document.getElementById('results').innerHTML = `
+            // Cleanup
+            src.delete();
+            gray.delete();
+            keypoints.delete();
+            descriptors.delete();
+            output.delete();
+
+            // Return HTML
+            return `
                 <div class="status ${className}">
                     <h3>${status} - ${type === 'detection' ? 'Detection Marker' : 'Positioning Marker'}</h3>
                     <p><strong>Keypoints rilevati:</strong> ${numKeypoints}</p>
@@ -203,14 +373,10 @@
                     <p style="margin-top: 15px;"><em>I punti verdi nell'immagine mostrano i keypoint rilevati da OpenCV</em></p>
                 </div>
             `;
-
-            // Cleanup
-            src.delete();
-            gray.delete();
-            keypoints.delete();
-            descriptors.delete();
-            output.delete();
         }
+
+        // Carica characters all'avvio
+        loadCharacters();
     </script>
 </body>
 </html>
