@@ -151,11 +151,28 @@
         <canvas id="canvas" style="display:none;"></canvas>
     </div>
 
-    <script src="https://docs.opencv.org/4.5.2/opencv.js"></script>
     <script>
         let cvReady = false;
         let characters = [];
         let currentCharacter = null;
+
+        // Timeout per caricamento OpenCV (30 secondi)
+        setTimeout(function() {
+            if (!cvReady) {
+                const loadingStatus = document.getElementById('loading-status');
+                loadingStatus.innerHTML = '❌ Timeout caricamento OpenCV.js. <a href="#" onclick="location.reload()" style="color: #4CAF50;">Ricarica la pagina</a>';
+                loadingStatus.style.background = '#f44336';
+            }
+        }, 30000);
+    </script>
+
+    <script async src="https://docs.opencv.org/4.5.2/opencv.js" onload="console.log('OpenCV script loaded')" onerror="handleOpenCVError()"></script>
+    <script>
+        function handleOpenCVError() {
+            const loadingStatus = document.getElementById('loading-status');
+            loadingStatus.innerHTML = '❌ Errore caricamento OpenCV.js. Verifica la connessione internet. <a href="#" onclick="location.reload()" style="color: #4CAF50;">Ricarica</a>';
+            loadingStatus.style.background = '#f44336';
+        }
 
         // Carica characters dal database
         async function loadCharacters() {
@@ -262,6 +279,27 @@
             document.getElementById('canvas').style.display = 'none';
         }
 
+        // Polling per verificare quando cv è disponibile
+        let checkCount = 0;
+        const checkInterval = setInterval(function() {
+            checkCount++;
+            const loadingStatus = document.getElementById('loading-status');
+
+            if (typeof cv !== 'undefined' && cv.Mat) {
+                clearInterval(checkInterval);
+                onOpenCvReady();
+            } else if (checkCount > 60) {
+                // Dopo 30 secondi (60 * 500ms) di polling
+                clearInterval(checkInterval);
+                loadingStatus.innerHTML = '❌ OpenCV.js non risponde. <a href="#" onclick="location.reload()" style="color: #4CAF50;">Ricarica</a>';
+                loadingStatus.style.background = '#f44336';
+            } else {
+                // Mostra punti animati
+                const dots = '.'.repeat((checkCount % 4));
+                loadingStatus.innerHTML = `⏳ Caricamento OpenCV.js in corso${dots}`;
+            }
+        }, 500);
+
         // Attendi caricamento OpenCV
         function onOpenCvReady() {
             cvReady = true;
@@ -279,6 +317,7 @@
             // Abilita pulsante test character se già selezionato
             if (currentCharacter && (currentCharacter.marker_image || currentCharacter.positioning_marker_image)) {
                 document.getElementById('testCharacterBtn').disabled = false;
+                document.getElementById('testCharacterBtn').textContent = 'Testa Entrambi i Marker';
             }
         }
 
