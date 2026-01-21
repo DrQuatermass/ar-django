@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Camera - Simplified</title>
+    {% load static %}
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #000;
+            overflow: hidden;
+        }
+
+        #camera-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #camera-stream {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        #ar-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .ar-character {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            transition: opacity 0.3s ease;
+        }
+
+        .ar-character img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        #debug-info {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: #0f0;
+            padding: 10px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 11px;
+            z-index: 100;
+            max-width: 300px;
+        }
+
+        #status {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 20px;
+            z-index: 100;
+            text-align: center;
+        }
+
+        .error {
+            background: rgba(200, 0, 0, 0.9) !important;
+        }
+
+        .success {
+            background: rgba(0, 150, 0, 0.9) !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="camera-container">
+        <video id="camera-stream" autoplay playsinline></video>
+        <div id="ar-overlay"></div>
+    </div>
+
+    <div id="debug-info">
+        <div>GPS: <span id="gps-status">Initializing...</span></div>
+        <div>OpenCV: <span id="opencv-status">Loading...</span></div>
+        <div>Chars: <span id="chars-status">0</span></div>
+        <div>Active: <span id="active-status">0</span></div>
+        <div>FPS: <span id="fps-status">0</span></div>
+    </div>
+
+    <div id="status">Initializing AR Camera...</div>
+
+    <script>
+        // Embedded character data from Django
+        const CHARACTERS = {{ characters_json|safe }};
+
+        let openCvReady = false;
+        let arCamera = null;
+
+        function onOpenCvReady() {
+            openCvReady = true;
+            document.getElementById('opencv-status').textContent = 'Ready';
+            initARCamera();
+        }
+
+        function initARCamera() {
+            if (!openCvReady) {
+                setTimeout(initARCamera, 100);
+                return;
+            }
+            arCamera = new ARCamera();
+            arCamera.init();
+        }
+
+        // Simple Kalman Filter for GPS smoothing
+        class KalmanFilter {
+            constructor(q = 0.001, r = 0.5) {
+                this.q = q; // Process noise
+                this.r = r; // Measurement noise
+                this.x = null; // Estimate
+                this.p = 1; // Estimate error
+                this.k = 0; // Kalman gain
+            }
+
+            filter(measurement, wraparound = false) {
+                if (this.x === null) {
+                    this.x = measurement;
+                    return this.x;
+                }
+
+                // Handle circular values (heading)
+                if (wraparound) {
+                    let diff = measurement - this.x;
+                    if (diff > 180) diff -= 360;
+                    if (diff < -180) diff += 360;
+                    measurement = this.x + diff;
+                }
+
+                // Prediction
+                this.p = this.p + this.q;
+
+                // Update
+                this.k = this.p / (this.p + this.r);
+                this.x = this.x + this.k * (measurement - this.x);
+                this.p = (1 - this.k) * this.p;
+
+                // Wrap heading back to [0, 360]
+                if (wraparound && this.x < 0) this.x += 360;
+                if (wraparound && this.x >= 360) this.x -= 360;
+
+                return this.x;
+            }
+        }
+
+        class ARCamera {
+            constructor() {
+                this.video = document.getElementById('camera-stream');
+                this.overlay = document.getElementById('ar-overlay');
+
+                // GPS state
+                this.gpsPosition = null;
+                this.gpsLatFilter = new KalmanFilter(0.001, 0.5);
+                this.gpsLngFilter = new KalmanFilter(0.001, 0.5);
+
+                // Characters state
+                this.activeCharacters = new Map(); // charId -> character data
+                this.markerTemplates = new Map(); // charId -> {keypoints, descriptors, featureCount}
+                this.detectedMarkers = new Map(); // charId -> {centerX, centerY, matches, ...}
+
+                // Smooth positioning
+                this.smoothPositions = new Map(); // charId -> {currentX, currentY, targetX, targetY, scale}
+                this.smoothingFactor = 0.2;
+
+                // Performance
+                this.lastFrameTime = Date.now();
+                this.frameCount = 0;
+                this.fps = 0;
+            }
+
+            async init() {
+                try {
+                    await this.initCamera();
+                    await this.initGPS();
+                    this.loadMarkerTemplates();
+                    this.startDetectionLoop();
+                    this.startSmoothingLoop();
+                    this.updateStatus('AR Camera Ready', 'success');
+                } catch (error) {
+                    console.error('Init error:', error);
+                    this.updateStatus('Initialization failed: ' + error.message, 'error');
+                }
+            }
+
+            async initCamera() {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                });
+                this.video.srcObject = stream;
+                await new Promise(resolve => this.video.onloadedmetadata = resolve);
+                console.log(`Camera: ${this.video.videoWidth}×${this.video.videoHeight}`);
+            }
+
+            async initGPS() {
+                if (!navigator.geolocation) {
+                    throw new Error('GPS not supported');
+                }
+
+                return new Promise((resolve, reject) => {
+                    navigator.geolocation.watchPosition(
+                        (position) => {
+                            const lat = this.gpsLatFilter.filter(position.coords.latitude);
+                            const lng = this.gpsLngFilter.filter(position.coords.longitude);
+                            this.gpsPosition = { lat, lng, accuracy: position.coords.accuracy };
+
+                            document.getElementById('gps-status').textContent =
+                                `${lat.toFixed(6)}, ${lng.toFixed(6)} (±${Math.round(position.coords.accuracy)}m)`;
+
+                            this.updateActiveCharacters();
+                            resolve();
+                        },
+                        (error) => reject(error),
+                        {
+                            enableHighAccuracy: true,
+                            timeout: 10000,
+                            maximumAge: 0
+                        }
+                    );
+                });
+            }
+
+            updateActiveCharacters() {
+                if (!this.gpsPosition) return;
+
+                this.activeCharacters.clear();
+
+                for (const char of CHARACTERS) {
+                    const distance = this.calculateDistance(
+                        this.gpsPosition.lat,
+                        this.gpsPosition.lng,
+                        char.target_latitude,
+                        char.target_longitude
+                    );
+
+                    if (distance <= char.activation_distance) {
+                        this.activeCharacters.set(char.id, { ...char, distance });
+                    }
+                }
+
+                document.getElementById('chars-status').textContent = CHARACTERS.length;
+                document.getElementById('active-status').textContent = this.activeCharacters.size;
+
+                console.log(`Active characters: ${this.activeCharacters.size}/${CHARACTERS.length}`);
+            }
+
+            calculateDistance(lat1, lon1, lat2, lon2) {
+                const R = 6371e3; // Earth radius in meters
+                const φ1 = lat1 * Math.PI / 180;
+                const φ2 = lat2 * Math.PI / 180;
+                const Δφ = (lat2 - lat1) * Math.PI / 180;
+                const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+                const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                          Math.cos(φ1) * Math.cos(φ2) *
+                          Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+                return R * c;
+            }
+
+            async loadMarkerTemplates() {
+                console.log('Loading marker templates...');
+
+                for (const char of CHARACTERS) {
+                    if (!char.positioning_marker_image) continue;
+
+                    try {
+                        const img = await this.loadImage(char.positioning_marker_image);
+                        const mat = cv.imread(img);
+                        const gray = new cv.Mat();
+                        cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY);
+
+                        const orb = new cv.ORB(1000);
+                        const keypoints = new cv.KeyPointVector();
+                        const descriptors = new cv.Mat();
+                        orb.detectAndCompute(gray, new cv.Mat(), keypoints, descriptors);
+
+                        this.markerTemplates.set(char.id, {
+                            character: char,
+                            keypoints,
+                            descriptors,
+                            featureCount: keypoints.size(),
+                            width: mat.cols,
+                            height: mat.rows
+                        });
+
+                        mat.delete();
+                        gray.delete();
+
+                        console.log(`Loaded marker for ${char.name}: ${keypoints.size()} features`);
+                    } catch (error) {
+                        console.error(`Failed to load marker for ${char.name}:`, error);
+                    }
+                }
+            }
+
+            loadImage(url) {
+                return new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.crossOrigin = 'anonymous';
+                    img.onload = () => resolve(img);
+                    img.onerror = reject;
+                    img.src = url;
+                });
+            }
+
+            startDetectionLoop() {
+                const detect = () => {
+                    if (this.activeCharacters.size > 0 && this.video.readyState === 4) {
+                        this.detectMarkers();
+                        this.updateCharacters();
+                        this.updateFPS();
+                    }
+                    setTimeout(detect, 100); // 10fps detection
+                };
+                detect();
+            }
+
+            detectMarkers() {
+                // Create canvas for processing
+                const canvas = document.createElement('canvas');
+                canvas.width = this.video.videoWidth;
+                canvas.height = this.video.videoHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(this.video, 0, 0);
+
+                // Extract frame with OpenCV
+                const src = cv.imread(canvas);
+                const gray = new cv.Mat();
+                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+                const orb = new cv.ORB(1000);
+                const keypoints = new cv.KeyPointVector();
+                const descriptors = new cv.Mat();
+                orb.detectAndCompute(gray, new cv.Mat(), keypoints, descriptors);
+
+                this.detectedMarkers.clear();
+
+                // Match against each active character's marker
+                for (const [charId, char] of this.activeCharacters) {
+                    if (!this.markerTemplates.has(charId)) continue;
+
+                    const template = this.markerTemplates.get(charId);
+                    const matches = this.matchFeatures(descriptors, template.descriptors);
+
+                    if (matches.length < 10) continue;
+
+                    // Validate geometry with homography
+                    const homographyResult = this.validateHomography(matches, keypoints, template.keypoints);
+                    if (!homographyResult.valid) {
+                        console.log(`Marker ${char.name} rejected: ${homographyResult.reason}`);
+                        continue;
+                    }
+
+                    // Calculate marker center
+                    let centerX = 0, centerY = 0;
+                    matches.forEach(m => {
+                        const kp = keypoints.get(m.queryIdx);
+                        centerX += kp.pt.x;
+                        centerY += kp.pt.y;
+                    });
+                    centerX /= matches.length;
+                    centerY /= matches.length;
+
+                    this.detectedMarkers.set(charId, {
+                        character: char,
+                        centerX,
+                        centerY,
+                        matches: matches.length
+                    });
+
+                    console.log(`Detected ${char.name}: ${matches.length} matches at (${centerX.toFixed(0)}, ${centerY.toFixed(0)})`);
+                }
+
+                // Cleanup
+                src.delete();
+                gray.delete();
+                keypoints.delete();
+                descriptors.delete();
+            }
+
+            matchFeatures(desc1, desc2) {
+                if (!desc1 || !desc2 || desc1.rows === 0 || desc2.rows === 0) {
+                    return [];
+                }
+
+                const bf = new cv.BFMatcher(cv.NORM_HAMMING, true);
+                const matches = new cv.DMatchVector();
+                bf.match(desc1, desc2, matches);
+
+                const goodMatches = [];
+                for (let i = 0; i < matches.size(); i++) {
+                    const match = matches.get(i);
+                    if (match.distance < 70) {
+                        goodMatches.push(match);
+                    }
+                }
+
+                matches.delete();
+                return goodMatches;
+            }
+
+            validateHomography(matches, keypointsFrame, keypointsTemplate) {
+                if (matches.length < 10) {
+                    return { valid: false, reason: 'Too few matches' };
+                }
+
+                try {
+                    const srcPoints = [];
+                    const dstPoints = [];
+
+                    matches.forEach(m => {
+                        const kpFrame = keypointsFrame.get(m.queryIdx);
+                        const kpTemplate = keypointsTemplate.get(m.trainIdx);
+                        srcPoints.push(kpFrame.pt.x, kpFrame.pt.y);
+                        dstPoints.push(kpTemplate.pt.x, kpTemplate.pt.y);
+                    });
+
+                    const srcMat = cv.matFromArray(matches.length, 1, cv.CV_32FC2, srcPoints);
+                    const dstMat = cv.matFromArray(matches.length, 1, cv.CV_32FC2, dstPoints);
+                    const H = cv.findHomography(srcMat, dstMat, cv.RANSAC, 5.0);
+
+                    if (H.empty()) {
+                        srcMat.delete();
+                        dstMat.delete();
+                        return { valid: false, reason: 'Homography failed' };
+                    }
+
+                    const det = cv.determinant(H);
+                    H.delete();
+                    srcMat.delete();
+                    dstMat.delete();
+
+                    if (Math.abs(det) < 0.01 || Math.abs(det) > 100) {
+                        return { valid: false, reason: `Bad determinant: ${det.toFixed(2)}` };
+                    }
+
+                    return { valid: true, determinant: det };
+                } catch (error) {
+                    return { valid: false, reason: error.message };
+                }
+            }
+
+            updateCharacters() {
+                for (const [charId, char] of this.activeCharacters) {
+                    const marker = this.detectedMarkers.get(charId);
+
+                    if (marker) {
+                        this.showCharacter(char, marker);
+                    } else {
+                        this.hideCharacter(charId);
+                    }
+                }
+            }
+
+            showCharacter(char, marker) {
+                let div = this.overlay.querySelector(`[data-char-id="${char.id}"]`);
+                const isNew = !div;
+
+                if (isNew) {
+                    div = document.createElement('div');
+                    div.className = 'ar-character';
+                    div.dataset.charId = char.id;
+                    div.style.opacity = '0';
+
+                    const img = document.createElement('img');
+                    img.src = char.character_image;
+                    div.appendChild(img);
+
+                    this.overlay.appendChild(div);
+                }
+
+                // Convert VIDEO coords to SCREEN coords
+                const videoAspect = this.video.videoWidth / this.video.videoHeight;
+                const screenAspect = window.innerWidth / window.innerHeight;
+
+                let scaleX, scaleY, offsetX = 0, offsetY = 0;
+
+                if (videoAspect > screenAspect) {
+                    scaleY = window.innerHeight / this.video.videoHeight;
+                    scaleX = scaleY;
+                    offsetX = (window.innerWidth - (this.video.videoWidth * scaleX)) / 2;
+                } else {
+                    scaleX = window.innerWidth / this.video.videoWidth;
+                    scaleY = scaleX;
+                    offsetY = (window.innerHeight - (this.video.videoHeight * scaleY)) / 2;
+                }
+
+                const screenX = (marker.centerX * scaleX) + offsetX;
+                const screenY = (marker.centerY * scaleY) + offsetY;
+
+                // Initialize or update smooth position
+                if (!this.smoothPositions.has(char.id)) {
+                    this.smoothPositions.set(char.id, {
+                        currentX: screenX,
+                        currentY: screenY,
+                        targetX: screenX,
+                        targetY: screenY,
+                        scale: char.base_size || 1.0
+                    });
+                }
+
+                const smooth = this.smoothPositions.get(char.id);
+                smooth.targetX = screenX;
+                smooth.targetY = screenY;
+
+                if (isNew) {
+                    smooth.currentX = screenX;
+                    smooth.currentY = screenY;
+                }
+
+                // Apply position (actual smoothing happens in smoothingLoop)
+                const size = 80 * smooth.scale;
+                div.style.left = `${smooth.currentX}px`;
+                div.style.top = `${smooth.currentY}px`;
+                div.style.width = `${size}px`;
+                div.style.height = `${size}px`;
+                div.style.transform = 'translate(-50%, -50%)';
+                div.style.opacity = '1';
+            }
+
+            hideCharacter(charId) {
+                const div = this.overlay.querySelector(`[data-char-id="${charId}"]`);
+                if (div) {
+                    div.style.opacity = '0';
+                }
+            }
+
+            startSmoothingLoop() {
+                const smooth = () => {
+                    for (const [charId, pos] of this.smoothPositions) {
+                        const dx = pos.targetX - pos.currentX;
+                        const dy = pos.targetY - pos.currentY;
+
+                        if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+                            pos.currentX += dx * this.smoothingFactor;
+                            pos.currentY += dy * this.smoothingFactor;
+
+                            const div = this.overlay.querySelector(`[data-char-id="${charId}"]`);
+                            if (div) {
+                                div.style.left = `${pos.currentX}px`;
+                                div.style.top = `${pos.currentY}px`;
+                            }
+                        }
+                    }
+                    requestAnimationFrame(smooth);
+                };
+                smooth();
+            }
+
+            updateFPS() {
+                this.frameCount++;
+                const now = Date.now();
+                const elapsed = now - this.lastFrameTime;
+
+                if (elapsed >= 1000) {
+                    this.fps = Math.round((this.frameCount * 1000) / elapsed);
+                    document.getElementById('fps-status').textContent = this.fps;
+                    this.frameCount = 0;
+                    this.lastFrameTime = now;
+                }
+            }
+
+            updateStatus(message, type = '') {
+                const status = document.getElementById('status');
+                status.textContent = message;
+                status.className = type;
+
+                if (type) {
+                    setTimeout(() => {
+                        status.className = '';
+                    }, 3000);
+                }
+            }
+        }
+    </script>
+</body>
+</html>

@@ -198,3 +198,35 @@ def marker_test_view(request):
     Tool per testare la qualità dei marker
     """
     return render(request, 'home/marker_test.html')
+
+def camera_simple_gps_view(request):
+    """
+    View per la fotocamera AR semplificata con GPS filtering e single marker positioning
+    """
+    # Ottieni solo i personaggi con positioning_marker_image
+    characters = CharConfiguration.objects.filter(positioning_marker_image__isnull=False).exclude(positioning_marker_image='')
+
+    # Serializza i dati per embedding diretto nell'HTML
+    character_data = []
+    for char in characters:
+        data = {
+            'id': char.id,
+            'name': char.name,
+            'target_latitude': char.target_latitude,
+            'target_longitude': char.target_longitude,
+            'activation_distance': char.activation_distance,
+            'character_image': char.character_image.url if char.character_image else None,
+            'positioning_marker_image': char.positioning_marker_image.url,
+            'positioning_marker_features': char.positioning_marker_features,
+            'base_size': char.base_size,
+            'marker_offset_x': char.marker_offset_x,
+            'marker_offset_y': char.marker_offset_y,
+        }
+        character_data.append(data)
+
+    context = {
+        'characters': characters,
+        'characters_json': json.dumps(character_data),
+    }
+
+    return render(request, 'home/camera_simple_gps.html', context)
