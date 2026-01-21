@@ -1084,7 +1084,18 @@
                     const character = nearestChar.character;
                     const distance = nearestChar.distance;
 
-                    const matches = this.matchFeatures(descriptors, template.descriptors, keypoints, template.keypoints);
+                    let matches = this.matchFeatures(descriptors, template.descriptors, keypoints, template.keypoints);
+
+                    // VERIFICA GEOMETRICA CON HOMOGRAPHY per detection marker (rimuove falsi positivi)
+                    if (matches.length >= 10) {
+                        const homographyResult = this.validateHomography(matches, keypoints, template.keypoints);
+                        if (!homographyResult.valid) {
+                            console.log(`❌ Detection marker REJECTED by homography: ${homographyResult.reason}`);
+                            matches = []; // Invalida tutti i match se geometria non coerente
+                        } else {
+                            console.log(`✓ Detection marker PASSED homography check (det=${homographyResult.determinant.toFixed(2)})`);
+                        }
+                    }
 
                     // DETECTION MARKER: Salva sempre i dati per visualizzare keypoints
                     if (matches.length > 0) {
@@ -1742,6 +1753,62 @@
                 } catch (error) {
                     console.log('Homography validation error:', error);
                     return matches; // Fallback: usa tutti i match
+                }
+            }
+
+            validateHomography(matches, keypointsFrame, keypointsTemplate) {
+                // Verifica se i match formano una trasformazione geometrica coerente
+                // Restituisce { valid: true/false, reason: string, determinant: number }
+                try {
+                    if (matches.length < 10) {
+                        return { valid: false, reason: 'Too few matches (<10)', determinant: 0 };
+                    }
+
+                    // Estrai coordinate dei match
+                    const srcPoints = [];
+                    const dstPoints = [];
+
+                    matches.forEach(m => {
+                        const kpFrame = keypointsFrame.get(m.queryIdx);
+                        const kpTemplate = keypointsTemplate.get(m.trainIdx);
+                        srcPoints.push(kpFrame.pt.x, kpFrame.pt.y);
+                        dstPoints.push(kpTemplate.pt.x, kpTemplate.pt.y);
+                    });
+
+                    const srcMat = cv.matFromArray(matches.length, 1, cv.CV_32FC2, srcPoints);
+                    const dstMat = cv.matFromArray(matches.length, 1, cv.CV_32FC2, dstPoints);
+
+                    // Calcola homography con RANSAC (rimuove outliers)
+                    const H = cv.findHomography(srcMat, dstMat, cv.RANSAC, 5.0);
+
+                    if (H.empty()) {
+                        srcMat.delete();
+                        dstMat.delete();
+                        return { valid: false, reason: 'Homography computation failed', determinant: 0 };
+                    }
+
+                    // Verifica se homography è valida (non degenere)
+                    const det = cv.determinant(H);
+
+                    H.delete();
+                    srcMat.delete();
+                    dstMat.delete();
+
+                    // Determinante deve essere in range ragionevole
+                    // det~0: degenere (punti allineati o duplicati)
+                    // det molto alto: trasformazione non fisica
+                    if (Math.abs(det) < 0.01) {
+                        return { valid: false, reason: `Degenerate (det=${det.toFixed(3)})`, determinant: det };
+                    }
+                    if (Math.abs(det) > 100) {
+                        return { valid: false, reason: `Extreme transform (det=${det.toFixed(1)})`, determinant: det };
+                    }
+
+                    return { valid: true, reason: 'Valid homography', determinant: det };
+
+                } catch (error) {
+                    console.log('Homography validation error:', error);
+                    return { valid: false, reason: `Exception: ${error.message}`, determinant: 0 };
                 }
             }
 
