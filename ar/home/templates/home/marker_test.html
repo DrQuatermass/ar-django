@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Qualità Marker</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #1a1a1a;
+            color: white;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .marker-upload {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        input[type="file"] {
+            display: block;
+            margin: 10px 0;
+            padding: 10px;
+            background: #3a3a3a;
+            border: none;
+            border-radius: 5px;
+            color: white;
+            width: 100%;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        #results {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+        .good { color: #4CAF50; }
+        .warning { color: #ff9800; }
+        .bad { color: #f44336; }
+        canvas {
+            max-width: 100%;
+            border: 2px solid #444;
+            margin: 10px 0;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            background: #3a3a3a;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Test Qualità Marker</h1>
+        <p>Carica i tuoi marker per verificare se sono adatti al rilevamento OpenCV</p>
+
+        <div class="marker-upload">
+            <h3>Detection Marker (100+ matches richiesti)</h3>
+            <input type="file" id="detectionMarker" accept="image/*">
+            <button onclick="testMarker('detection')" id="testDetectionBtn" disabled>Testa Detection Marker</button>
+        </div>
+
+        <div class="marker-upload">
+            <h3>Positioning Marker (40+ matches richiesti)</h3>
+            <input type="file" id="positioningMarker" accept="image/*">
+            <button onclick="testMarker('positioning')" id="testPositioningBtn" disabled>Testa Positioning Marker</button>
+        </div>
+
+        <div id="results"></div>
+        <canvas id="canvas" style="display:none;"></canvas>
+    </div>
+
+    <script src="https://docs.opencv.org/4.5.2/opencv.js"></script>
+    <script>
+        let cvReady = false;
+
+        // Attendi caricamento OpenCV
+        function onOpenCvReady() {
+            cvReady = true;
+            console.log('✅ OpenCV caricato');
+            document.getElementById('testDetectionBtn').disabled = false;
+            document.getElementById('testPositioningBtn').disabled = false;
+        }
+
+        // Abilita pulsanti quando file selezionati
+        document.getElementById('detectionMarker').addEventListener('change', function(e) {
+            if (e.target.files.length > 0 && cvReady) {
+                document.getElementById('testDetectionBtn').disabled = false;
+            }
+        });
+
+        document.getElementById('positioningMarker').addEventListener('change', function(e) {
+            if (e.target.files.length > 0 && cvReady) {
+                document.getElementById('testPositioningBtn').disabled = false;
+            }
+        });
+
+        function testMarker(type) {
+            const fileInput = type === 'detection' ?
+                document.getElementById('detectionMarker') :
+                document.getElementById('positioningMarker');
+
+            const file = fileInput.files[0];
+            if (!file) {
+                alert('Seleziona un file prima!');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    analyzeMarker(img, type);
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function analyzeMarker(img, type) {
+            const canvas = document.getElementById('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+
+            // Converti in Mat OpenCV
+            const src = cv.imread(canvas);
+            const gray = new cv.Mat();
+            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+            // Configura ORB detector
+            const nfeatures = type === 'detection' ? 1000 : 500;
+            const orb = new cv.ORB(nfeatures);
+
+            // Rileva keypoints
+            const keypoints = new cv.KeyPointVector();
+            const descriptors = new cv.Mat();
+            orb.detect(gray, keypoints);
+            orb.compute(gray, keypoints, descriptors);
+
+            const numKeypoints = keypoints.size();
+            const threshold = type === 'detection' ? 100 : 40;
+
+            // Disegna keypoints
+            const output = new cv.Mat();
+            cv.drawKeypoints(src, keypoints, output, new cv.Scalar(0, 255, 0, 255));
+            cv.imshow('canvas', output);
+            canvas.style.display = 'block';
+
+            // Analizza risultati
+            let status = '';
+            let className = '';
+
+            if (numKeypoints >= threshold * 2) {
+                status = '✅ OTTIMO';
+                className = 'good';
+            } else if (numKeypoints >= threshold) {
+                status = '⚠️ SUFFICIENTE';
+                className = 'warning';
+            } else {
+                status = '❌ INSUFFICIENTE';
+                className = 'bad';
+            }
+
+            // Mostra risultati
+            document.getElementById('results').innerHTML = `
+                <div class="status ${className}">
+                    <h3>${status} - ${type === 'detection' ? 'Detection Marker' : 'Positioning Marker'}</h3>
+                    <p><strong>Keypoints rilevati:</strong> ${numKeypoints}</p>
+                    <p><strong>Soglia minima:</strong> ${threshold}</p>
+                    <p><strong>Descrittori:</strong> ${descriptors.rows} x ${descriptors.cols}</p>
+
+                    ${numKeypoints < threshold ? `
+                        <h4>⚠️ Consigli per migliorare:</h4>
+                        <ul>
+                            <li>Aumenta il contrasto dell'immagine</li>
+                            <li>Aggiungi più dettagli geometrici (angoli, linee)</li>
+                            <li>Usa pattern più complessi</li>
+                            <li>Evita aree uniformi</li>
+                            <li>Rendi il marker più asimmetrico</li>
+                        </ul>
+                    ` : ''}
+
+                    <p style="margin-top: 15px;"><em>I punti verdi nell'immagine mostrano i keypoint rilevati da OpenCV</em></p>
+                </div>
+            `;
+
+            // Cleanup
+            src.delete();
+            gray.delete();
+            keypoints.delete();
+            descriptors.delete();
+            output.delete();
+        }
+    </script>
+</body>
+</html>

@@ -188,3 +188,9 @@ def save_marker_scan(request):
             return JsonResponse({'error': str(e)}, status=500)
 
     return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+def marker_test_view(request):
+    """
+    Tool per testare la qualità dei marker
+    """
+    return render(request, 'home/marker_test.html')

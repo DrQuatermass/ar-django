@@ -9,4 +9,5 @@ urlpatterns = [
     path('api/characters/', views.get_character_data, name='character_data'),
     path('marker-scanner/', views.marker_scanner_view, name='marker_scanner'),
     path('api/save-marker-scan/', views.save_marker_scan, name='save_marker_scan'),
+    path('marker-test/', views.marker_test_view, name='marker_test'),
 ]

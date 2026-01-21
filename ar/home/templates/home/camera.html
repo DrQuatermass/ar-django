@@ -2073,18 +2073,18 @@
                             const videoAspect = this.videoElement.videoWidth / this.videoElement.videoHeight;
                             const screenAspect = window.innerWidth / window.innerHeight;
 
-                            let scaleX, scaleY, offsetX = 0, offsetY = 0;
+                            let scaleX, scaleY, videoOffsetX = 0, videoOffsetY = 0;
 
                             if (videoAspect > screenAspect) {
                                 // Video più largo dello schermo → ritagliato ai lati
                                 scaleY = window.innerHeight / this.videoElement.videoHeight;
                                 scaleX = scaleY;
-                                offsetX = (window.innerWidth - (this.videoElement.videoWidth * scaleX)) / 2;
+                                videoOffsetX = (window.innerWidth - (this.videoElement.videoWidth * scaleX)) / 2;
                             } else {
                                 // Video più alto dello schermo → ritagliato sopra/sotto
                                 scaleX = window.innerWidth / this.videoElement.videoWidth;
                                 scaleY = scaleX;
-                                offsetY = (window.innerHeight - (this.videoElement.videoHeight * scaleY)) / 2;
+                                videoOffsetY = (window.innerHeight - (this.videoElement.videoHeight * scaleY)) / 2;
                             }
 
                             const pixelsPerMeter = markerWidth * scaleX / 0.3;
@@ -2109,11 +2109,11 @@
                                 // Z >= 0: personaggio SUL marker o DAVANTI → mostra
                                 // In 2D proiettiamo tutto sullo stesso piano, ignorando la profondità Z
                                 screenPosition = {
-                                    x: (markerX * scaleX) + offsetX + (offsetX_cameraSpace * pixelsPerMeter),
-                                    y: (markerY * scaleY) + offsetY + (offsetY_cameraSpace * pixelsPerMeter),
+                                    x: (markerX * scaleX) + videoOffsetX + (offsetX_cameraSpace * pixelsPerMeter),
+                                    y: (markerY * scaleY) + videoOffsetY + (offsetY_cameraSpace * pixelsPerMeter),
                                     visible: true
                                 };
-                                console.log(`✅ Personaggio DAVANTI/SUL marker (Z=${offsetZ_cameraSpace}m) → posizione=(${screenPosition.x}, ${screenPosition.y}) [video offset: ${offsetX}, ${offsetY}]`);
+                                console.log(`✅ Personaggio DAVANTI/SUL marker (Z=${offsetZ_cameraSpace}m) → posizione=(${screenPosition.x}, ${screenPosition.y}) [video offset: ${videoOffsetX}, ${videoOffsetY}]`);
                             }
 
                             const estimatedDistance = 1.0 / (markerWidth / this.videoElement.videoWidth);
