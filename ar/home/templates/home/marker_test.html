@@ -148,7 +148,6 @@
         </div>
 
         <div id="results"></div>
-        <canvas id="canvas" style="display:none;"></canvas>
     </div>
 
     <script>
@@ -358,9 +357,15 @@
         }
 
         function analyzeMarker(img, type) {
-            const canvas = document.getElementById('canvas');
+            // Crea un canvas unico per questo marker
+            const canvasId = 'canvas_' + type + '_' + Date.now();
+            const canvas = document.createElement('canvas');
+            canvas.id = canvasId;
             canvas.width = img.width;
             canvas.height = img.height;
+            canvas.style.maxWidth = '100%';
+            canvas.style.border = '2px solid #444';
+            canvas.style.margin = '10px 0';
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0);
 
@@ -385,8 +390,7 @@
             // Disegna keypoints
             const output = new cv.Mat();
             cv.drawKeypoints(src, keypoints, output, new cv.Scalar(0, 255, 0, 255));
-            cv.imshow('canvas', output);
-            canvas.style.display = 'block';
+            cv.imshow(canvasId, output);
 
             // Analizza risultati
             let status = '';
@@ -403,15 +407,8 @@
                 className = 'bad';
             }
 
-            // Cleanup
-            src.delete();
-            gray.delete();
-            keypoints.delete();
-            descriptors.delete();
-            output.delete();
-
-            // Return HTML
-            return `
+            // Crea HTML con canvas incorporato
+            const htmlResult = `
                 <div class="status ${className}">
                     <h3>${status} - ${type === 'detection' ? 'Detection Marker' : 'Positioning Marker'}</h3>
                     <p><strong>Keypoints rilevati:</strong> ${numKeypoints}</p>
@@ -430,8 +427,26 @@
                     ` : ''}
 
                     <p style="margin-top: 15px;"><em>I punti verdi nell'immagine mostrano i keypoint rilevati da OpenCV</em></p>
+                    <div id="${canvasId}_container"></div>
                 </div>
             `;
+
+            // Cleanup
+            src.delete();
+            gray.delete();
+            keypoints.delete();
+            descriptors.delete();
+            output.delete();
+
+            // Ritorna HTML e inserisci canvas dopo
+            setTimeout(() => {
+                const container = document.getElementById(canvasId + '_container');
+                if (container) {
+                    container.appendChild(canvas);
+                }
+            }, 10);
+
+            return htmlResult;
         }
 
         // Carica characters all'avvio
