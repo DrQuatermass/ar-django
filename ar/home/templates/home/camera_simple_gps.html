@@ -373,12 +373,20 @@
                     const template = this.markerTemplates.get(charId);
                     const matches = this.matchFeatures(descriptors, template.descriptors);
 
-                    if (matches.length < 10) continue;
+                    // SOGLIA DINAMICA: richiedi almeno 50% dei features del marker
+                    const minMatches = Math.max(40, Math.floor(char.positioning_marker_features * 0.50));
+
+                    if (matches.length < minMatches) {
+                        if (matches.length > 0) {
+                            console.log(`${char.name}: ${matches.length} matches < ${minMatches} required (${char.positioning_marker_features} features)`);
+                        }
+                        continue;
+                    }
 
                     // Validate geometry with homography
                     const homographyResult = this.validateHomography(matches, keypoints, template.keypoints);
                     if (!homographyResult.valid) {
-                        console.log(`Marker ${char.name} rejected: ${homographyResult.reason}`);
+                        console.log(`Marker ${char.name} rejected: ${homographyResult.reason} (${matches.length} matches)`);
                         continue;
                     }
 
@@ -399,7 +407,7 @@
                         matches: matches.length
                     });
 
-                    console.log(`Detected ${char.name}: ${matches.length} matches at (${centerX.toFixed(0)}, ${centerY.toFixed(0)})`);
+                    console.log(`✓ Detected ${char.name}: ${matches.length}/${char.positioning_marker_features} matches (${(matches.length/char.positioning_marker_features*100).toFixed(0)}%) at (${centerX.toFixed(0)}, ${centerY.toFixed(0)})`);
                 }
 
                 // Cleanup
@@ -418,10 +426,11 @@
                 const matches = new cv.DMatchVector();
                 bf.match(desc1, desc2, matches);
 
+                // Filtra solo match di alta qualità (distance < 50, più rigoroso del precedente 70)
                 const goodMatches = [];
                 for (let i = 0; i < matches.size(); i++) {
                     const match = matches.get(i);
-                    if (match.distance < 70) {
+                    if (match.distance < 50) {
                         goodMatches.push(match);
                     }
                 }
@@ -445,6 +454,31 @@
                         srcPoints.push(kpFrame.pt.x, kpFrame.pt.y);
                         dstPoints.push(kpTemplate.pt.x, kpTemplate.pt.y);
                     });
+
+                    // VERIFICA COMPATTEZZA: i keypoints devono essere raggruppati, non sparsi
+                    let sumX = 0, sumY = 0;
+                    for (let i = 0; i < srcPoints.length; i += 2) {
+                        sumX += srcPoints[i];
+                        sumY += srcPoints[i + 1];
+                    }
+                    const centerX = sumX / matches.length;
+                    const centerY = sumY / matches.length;
+
+                    let sumDistSq = 0;
+                    for (let i = 0; i < srcPoints.length; i += 2) {
+                        const dx = srcPoints[i] - centerX;
+                        const dy = srcPoints[i + 1] - centerY;
+                        sumDistSq += dx * dx + dy * dy;
+                    }
+                    const avgDistFromCenter = Math.sqrt(sumDistSq / matches.length);
+
+                    // Calcola "spread" (quanto sono sparsi i punti)
+                    const frameSize = Math.sqrt(keypointsFrame.size() * 1000);
+                    const compactness = avgDistFromCenter / frameSize;
+
+                    if (compactness > 0.20) {
+                        return { valid: false, reason: `Points too scattered (${compactness.toFixed(2)} > 0.20)` };
+                    }
 
                     const srcMat = cv.matFromArray(matches.length, 1, cv.CV_32FC2, srcPoints);
                     const dstMat = cv.matFromArray(matches.length, 1, cv.CV_32FC2, dstPoints);
