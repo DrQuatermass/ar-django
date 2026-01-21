@@ -19,8 +19,18 @@ def get_yolo_model():
     global _yolo_model
     if _yolo_model is None:
         try:
+            # Workaround for PyTorch 2.10+ weights_only default change
+            # ultralytics uses torch.load internally, we need to allow legacy loading
+            import torch
+            original_load = torch.load
+            torch.load = lambda *args, **kwargs: original_load(*args, **{**kwargs, 'weights_only': False})
+
             from ultralytics import YOLO
             _yolo_model = YOLO('yolov8n.pt')  # YOLOv8 nano (più leggero)
+
+            # Restore original torch.load
+            torch.load = original_load
+
             print("YOLO model loaded successfully")
         except Exception as e:
             print(f"Error loading YOLO model: {e}")
