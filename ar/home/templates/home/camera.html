@@ -1372,10 +1372,23 @@
                                             character.target_longitude
                                         );
 
-                                        // IMPORTANTE: Salva coordinate VIDEO (non SCREEN) per consistenza
+                                        // APPLICA OFFSET al positioning marker PRIMA di salvare l'anchor
+                                        // Gli offset sono in metri, convertiamo in pixel VIDEO space
+                                        const markerWidth_video = posMaxX - posMinX;
+                                        const pixelsPerMeter_video = markerWidth_video / 0.3; // Assumiamo marker di 30cm
+
+                                        // Offset in camera space (inverti X e Z come per il real-time positioning)
+                                        const offsetX_cameraSpace = -character.marker_offset_x;
+                                        const offsetY_cameraSpace = character.marker_offset_y;
+                                        const offsetX_pixels = offsetX_cameraSpace * pixelsPerMeter_video;
+                                        const offsetY_pixels = offsetY_cameraSpace * pixelsPerMeter_video;
+
+                                        console.log(`📐 Applying offsets to anchor: marker=(${character.marker_offset_x}, ${character.marker_offset_y}, ${character.marker_offset_z})m → camera=(${offsetX_cameraSpace}, ${offsetY_cameraSpace})m → pixels=(${offsetX_pixels.toFixed(1)}, ${offsetY_pixels.toFixed(1)})px`);
+
+                                        // IMPORTANTE: Salva coordinate VIDEO (non SCREEN) per consistenza + OFFSET applicato
                                         // Verranno scalate a SCREEN solo in calculateAnchoredPosition()
-                                        const videoX = smoothPosX;
-                                        const videoY = smoothPosY;
+                                        const videoX = smoothPosX + offsetX_pixels;
+                                        const videoY = smoothPosY + offsetY_pixels;
 
                                         const now = Date.now();
                                         if (this.positionAnchors.has(charId)) {
