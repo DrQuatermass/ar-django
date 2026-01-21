@@ -373,8 +373,9 @@
                     const template = this.markerTemplates.get(charId);
                     const matches = this.matchFeatures(descriptors, template.descriptors);
 
-                    // SOGLIA DINAMICA: richiedi almeno 50% dei features del marker
-                    const minMatches = Math.max(40, Math.floor(char.positioning_marker_features * 0.50));
+                    // SOGLIA PER SCENE REALI: molto più bassa perché angolazione/luce cambiano
+                    // Richiedi almeno 15% dei features (scene reali vs marker stampati)
+                    const minMatches = Math.max(30, Math.floor(char.positioning_marker_features * 0.15));
 
                     if (matches.length < minMatches) {
                         if (matches.length > 0) {
@@ -426,11 +427,12 @@
                 const matches = new cv.DMatchVector();
                 bf.match(desc1, desc2, matches);
 
-                // Filtra solo match di alta qualità (distance < 50, più rigoroso del precedente 70)
+                // Per scene reali: distance < 60 (più permissivo che per marker stampati)
+                // Le condizioni cambiano (luce, angolo, distanza) quindi servono match meno stringenti
                 const goodMatches = [];
                 for (let i = 0; i < matches.size(); i++) {
                     const match = matches.get(i);
-                    if (match.distance < 50) {
+                    if (match.distance < 60) {
                         goodMatches.push(match);
                     }
                 }
@@ -473,11 +475,12 @@
                     const avgDistFromCenter = Math.sqrt(sumDistSq / matches.length);
 
                     // Calcola "spread" (quanto sono sparsi i punti)
+                    // Per scene reali: soglia più alta (0.35) perché i features occupano area più grande
                     const frameSize = Math.sqrt(keypointsFrame.size() * 1000);
                     const compactness = avgDistFromCenter / frameSize;
 
-                    if (compactness > 0.20) {
-                        return { valid: false, reason: `Points too scattered (${compactness.toFixed(2)} > 0.20)` };
+                    if (compactness > 0.35) {
+                        return { valid: false, reason: `Points too scattered (${compactness.toFixed(2)} > 0.35)` };
                     }
 
                     const srcMat = cv.matFromArray(matches.length, 1, cv.CV_32FC2, srcPoints);
