@@ -251,6 +251,39 @@ def camera_simple_gps_view(request):
 
     return render(request, 'home/camera_simple_gps.html', context)
 
+def camera_yolo_view(request):
+    """
+    View per la fotocamera AR con YOLO object detection
+    """
+    # Ottieni solo i personaggi con YOLO abilitato
+    characters = CharConfiguration.objects.filter(use_yolo_detection=True).exclude(yolo_object_class='')
+
+    # Serializza i dati per embedding diretto nell'HTML
+    character_data = []
+    for char in characters:
+        data = {
+            'id': char.id,
+            'name': char.name,
+            'target_latitude': char.target_latitude,
+            'target_longitude': char.target_longitude,
+            'activation_distance': char.activation_distance,
+            'character_image': char.character_image.url if char.character_image else None,
+            'use_yolo_detection': char.use_yolo_detection,
+            'yolo_object_class': char.yolo_object_class,
+            'yolo_confidence_threshold': char.yolo_confidence_threshold,
+            'base_size': char.base_size,
+            'marker_offset_x': char.marker_offset_x,
+            'marker_offset_y': char.marker_offset_y,
+        }
+        character_data.append(data)
+
+    context = {
+        'characters': characters,
+        'characters_json': json.dumps(character_data),
+    }
+
+    return render(request, 'home/camera_yolo.html', context)
+
 @csrf_exempt
 def yolo_detect_object(request):
     """
