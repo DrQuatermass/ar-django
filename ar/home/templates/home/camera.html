@@ -2194,10 +2194,12 @@
                         const posMarker = this.detectedPositioningMarkers.get(character.id);
 
                         if (posMarker.useForPositioning) {
-                            // Usa positioning marker coordinates (real-time tracking pixel-perfect)
-                            const markerX = posMarker.screenX;
-                            const markerY = posMarker.screenY;
-                            const markerWidth = posMarker.bbox[2];
+                            // NOTA: posMarker.screenX/screenY sono in realtà coordinate VIDEO space (nome fuorviante)
+                            const markerX_video = posMarker.screenX;
+                            const markerY_video = posMarker.screenY;
+                            const markerWidth_video = posMarker.bbox[2];
+
+                            console.log(`📹 Marker position in VIDEO space: x=${markerX_video.toFixed(1)}, y=${markerY_video.toFixed(1)}, width=${markerWidth_video.toFixed(1)} (video: ${this.videoElement.videoWidth}×${this.videoElement.videoHeight})`);
 
                             // Calcola scale e offset per object-fit: cover
                             const videoAspect = this.videoElement.videoWidth / this.videoElement.videoHeight;
@@ -2217,17 +2219,17 @@
                                 videoOffsetY = (window.innerHeight - (this.videoElement.videoHeight * scaleY)) / 2;
                             }
 
-                            const pixelsPerMeter = markerWidth * scaleX / 0.3;
+                            console.log(`📐 Video to screen scale: scaleX=${scaleX.toFixed(3)}, scaleY=${scaleY.toFixed(3)}, offset=(${videoOffsetX.toFixed(1)}, ${videoOffsetY.toFixed(1)})`);
+
+                            // Calcola pixelsPerMeter in VIDEO space
+                            const pixelsPerMeter_video = markerWidth_video / 0.3; // Marker di 30cm
 
                             // IMPORTANTE: Gli offset sono dal punto di vista del MARKER quando lo catturi,
                             // ma la camera guarda il marker dal lato OPPOSTO.
-                            // Quindi: offset_z positivo (davanti al marker) = DIETRO la camera
-                            //         offset_x positivo (destra del marker) = SINISTRA della camera
-
-                            // SOLUZIONE: Inverti sempre X e Z per convertire da marker-space a camera-space
+                            // SOLUZIONE: Inverti X e Z per convertire da marker-space a camera-space
                             const offsetX_cameraSpace = -character.marker_offset_x;
-                            const offsetY_cameraSpace = character.marker_offset_y; // Y rimane uguale (alto/basso)
-                            const offsetZ_cameraSpace = -character.marker_offset_z; // Z invertito (profondità)
+                            const offsetY_cameraSpace = character.marker_offset_y;
+                            const offsetZ_cameraSpace = -character.marker_offset_z;
 
                             console.log(`📐 Offsets: marker-space=(${character.marker_offset_x}, ${character.marker_offset_y}, ${character.marker_offset_z}) → camera-space=(${offsetX_cameraSpace}, ${offsetY_cameraSpace}, ${offsetZ_cameraSpace})`);
 
@@ -2236,17 +2238,26 @@
                                 console.log(`❌ Personaggio DIETRO il marker (Z=${offsetZ_cameraSpace}m) → nascosto`);
                                 screenPosition = { x: 0, y: 0, visible: false };
                             } else {
-                                // Z >= 0: personaggio SUL marker o DAVANTI → mostra
-                                // In 2D proiettiamo tutto sullo stesso piano, ignorando la profondità Z
+                                // Converti offset da metri a pixel VIDEO space
+                                const offsetX_pixels_video = offsetX_cameraSpace * pixelsPerMeter_video;
+                                const offsetY_pixels_video = offsetY_cameraSpace * pixelsPerMeter_video;
+
+                                // Calcola posizione finale in VIDEO space (marker + offset)
+                                const finalX_video = markerX_video + offsetX_pixels_video;
+                                const finalY_video = markerY_video + offsetY_pixels_video;
+
+                                console.log(`🎯 Final position in VIDEO space: x=${finalX_video.toFixed(1)}, y=${finalY_video.toFixed(1)} (marker + offset)`);
+
+                                // Converti da VIDEO space a SCREEN space
                                 screenPosition = {
-                                    x: (markerX * scaleX) + videoOffsetX + (offsetX_cameraSpace * pixelsPerMeter),
-                                    y: (markerY * scaleY) + videoOffsetY + (offsetY_cameraSpace * pixelsPerMeter),
+                                    x: (finalX_video * scaleX) + videoOffsetX,
+                                    y: (finalY_video * scaleY) + videoOffsetY,
                                     visible: true
                                 };
-                                console.log(`✅ Personaggio DAVANTI/SUL marker (Z=${offsetZ_cameraSpace}m) → posizione=(${screenPosition.x}, ${screenPosition.y}) [video offset: ${videoOffsetX}, ${videoOffsetY}]`);
+                                console.log(`✅ Final position in SCREEN space: x=${screenPosition.x.toFixed(1)}, y=${screenPosition.y.toFixed(1)} (Z=${offsetZ_cameraSpace}m)`);
                             }
 
-                            const estimatedDistance = 1.0 / (markerWidth / this.videoElement.videoWidth);
+                            const estimatedDistance = 1.0 / (markerWidth_video / this.videoElement.videoWidth);
                             const targetSizeAt5m = window.innerWidth / 3;
                             const baseSize = 80;
                             const scaleAt5m = targetSizeAt5m / baseSize;
