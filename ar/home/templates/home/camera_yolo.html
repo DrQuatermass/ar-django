@@ -1,0 +1,443 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AR Camera - YOLO Detection</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #000;
+        }
+
+        #video {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            z-index: 1;
+        }
+
+        #ar-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .ar-character {
+            position: absolute;
+            transition: opacity 0.3s ease;
+            pointer-events: auto;
+        }
+
+        .ar-character img {
+            display: block;
+            width: auto;
+            height: auto;
+            max-width: 200px;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #debug-panel {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 12px;
+            z-index: 100;
+            max-width: 300px;
+        }
+
+        #debug-panel div {
+            margin: 5px 0;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .status-ok { background: #4CAF50; }
+        .status-loading { background: #FFC107; }
+        .status-error { background: #F44336; }
+
+        #loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            color: #fff;
+        }
+
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top: 3px solid #fff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        #loading-text {
+            font-size: 16px;
+            margin-top: 10px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <video id="video" autoplay playsinline></video>
+    <div id="ar-overlay"></div>
+
+    <div id="loading-overlay">
+        <div class="spinner"></div>
+        <div id="loading-text">Inizializzazione...</div>
+    </div>
+
+    <div id="debug-panel">
+        <div><strong>AR Camera - YOLO Detection</strong></div>
+        <div><span class="status-indicator" id="gps-indicator"></span>GPS: <span id="gps-status">...</span></div>
+        <div><span class="status-indicator" id="camera-indicator"></span>Camera: <span id="camera-status">...</span></div>
+        <div>Characters: <span id="chars-status">0</span> | Active: <span id="active-status">0</span></div>
+        <div>Anchors: <span id="anchors-status">0</span></div>
+        <div id="detection-status"></div>
+    </div>
+
+    <script>
+        // Embedded character data
+        const CHARACTERS = {{ characters_json|safe }};
+
+        class KalmanFilter {
+            constructor(q = 0.001, r = 0.5) {
+                this.q = q;
+                this.r = r;
+                this.p = 1;
+                this.x = null;
+            }
+
+            filter(measurement) {
+                if (this.x === null) {
+                    this.x = measurement;
+                    return this.x;
+                }
+                this.p = this.p + this.q;
+                const k = this.p / (this.p + this.r);
+                this.x = this.x + k * (measurement - this.x);
+                this.p = (1 - k) * this.p;
+                return this.x;
+            }
+        }
+
+        class ARCamera {
+            constructor() {
+                this.video = document.getElementById('video');
+                this.overlay = document.getElementById('ar-overlay');
+
+                // GPS
+                this.gpsPosition = null;
+                this.gpsLatFilter = new KalmanFilter(0.001, 0.5);
+                this.gpsLngFilter = new KalmanFilter(0.001, 0.5);
+
+                // Characters
+                this.activeCharacters = new Map();  // GPS-filtered characters
+                this.anchors = new Map();  // character_id → {screenX, screenY, created}
+
+                // State
+                this.isDetecting = false;
+            }
+
+            async init() {
+                try {
+                    this.updateLoadingText('Attivazione camera...');
+                    await this.initCamera();
+
+                    this.updateLoadingText('Attivazione GPS...');
+                    await this.initGPS();
+
+                    this.hideLoading();
+                    this.updateStatus('camera', 'ok', 'Ready');
+                    console.log('AR Camera initialized with YOLO detection');
+                } catch (error) {
+                    console.error('Init error:', error);
+                    this.updateLoadingText('Errore: ' + error.message);
+                    this.updateStatus('camera', 'error', error.message);
+                }
+            }
+
+            async initCamera() {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                });
+                this.video.srcObject = stream;
+                await new Promise(resolve => this.video.onloadedmetadata = resolve);
+                console.log(`Camera: ${this.video.videoWidth}×${this.video.videoHeight}`);
+            }
+
+            async initGPS() {
+                if (!navigator.geolocation) {
+                    throw new Error('GPS not supported');
+                }
+
+                return new Promise((resolve, reject) => {
+                    navigator.geolocation.watchPosition(
+                        (position) => {
+                            const lat = this.gpsLatFilter.filter(position.coords.latitude);
+                            const lng = this.gpsLngFilter.filter(position.coords.longitude);
+                            this.gpsPosition = { lat, lng, accuracy: position.coords.accuracy };
+
+                            document.getElementById('gps-status').textContent =
+                                `${lat.toFixed(6)}, ${lng.toFixed(6)} (±${Math.round(position.coords.accuracy)}m)`;
+                            this.updateStatus('gps', 'ok');
+
+                            this.updateActiveCharacters();
+                            resolve();
+                        },
+                        (error) => {
+                            this.updateStatus('gps', 'error', error.message);
+                            reject(error);
+                        },
+                        {
+                            enableHighAccuracy: true,
+                            timeout: 10000,
+                            maximumAge: 0
+                        }
+                    );
+                });
+            }
+
+            updateActiveCharacters() {
+                if (!this.gpsPosition) return;
+
+                const previousActive = new Set(this.activeCharacters.keys());
+                this.activeCharacters.clear();
+
+                for (const char of CHARACTERS) {
+                    const distance = this.calculateDistance(
+                        this.gpsPosition.lat,
+                        this.gpsPosition.lng,
+                        char.target_latitude,
+                        char.target_longitude
+                    );
+
+                    if (distance <= char.activation_distance) {
+                        this.activeCharacters.set(char.id, { ...char, distance });
+
+                        // Nuovo character attivato → trigger detection
+                        if (!previousActive.has(char.id)) {
+                            console.log(`Character ${char.name} activated at ${distance.toFixed(1)}m`);
+                            this.detectAndAnchor(char);
+                        }
+                    } else {
+                        // Character uscito dall'area → rimuovi anchor
+                        if (previousActive.has(char.id)) {
+                            console.log(`Character ${char.name} deactivated`);
+                            this.anchors.delete(char.id);
+                            this.hideCharacter(char.id);
+                        }
+                    }
+                }
+
+                document.getElementById('chars-status').textContent = CHARACTERS.length;
+                document.getElementById('active-status').textContent = this.activeCharacters.size;
+                document.getElementById('anchors-status').textContent = this.anchors.size;
+            }
+
+            async detectAndAnchor(char) {
+                if (this.isDetecting || !char.use_yolo_detection || !char.yolo_object_class) {
+                    return;
+                }
+
+                this.isDetecting = true;
+                const statusEl = document.getElementById('detection-status');
+                statusEl.textContent = `Detecting ${char.yolo_object_class}...`;
+
+                try {
+                    // Cattura frame corrente
+                    const canvas = document.createElement('canvas');
+                    canvas.width = this.video.videoWidth;
+                    canvas.height = this.video.videoHeight;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(this.video, 0, 0);
+                    const imageData = canvas.toDataURL('image/jpeg', 0.8);
+
+                    // Invia a server per YOLO detection
+                    const response = await fetch('/api/yolo-detect/', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            image: imageData,
+                            object_class: char.yolo_object_class,
+                            confidence_threshold: char.yolo_confidence_threshold || 0.5
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.success && data.detections.length > 0) {
+                        // Prendi prima detection (o quella con confidenza più alta)
+                        const detection = data.detections.reduce((best, curr) =>
+                            curr.confidence > best.confidence ? curr : best
+                        );
+
+                        // Converti coordinate VIDEO → SCREEN
+                        const videoAspect = this.video.videoWidth / this.video.videoHeight;
+                        const screenAspect = window.innerWidth / window.innerHeight;
+
+                        let scaleX, scaleY, offsetX = 0, offsetY = 0;
+
+                        if (videoAspect > screenAspect) {
+                            scaleY = window.innerHeight / this.video.videoHeight;
+                            scaleX = scaleY;
+                            offsetX = (window.innerWidth - (this.video.videoWidth * scaleX)) / 2;
+                        } else {
+                            scaleX = window.innerWidth / this.video.videoWidth;
+                            scaleY = scaleX;
+                            offsetY = (window.innerHeight - (this.video.videoHeight * scaleY)) / 2;
+                        }
+
+                        const screenX = (detection.bbox.x * scaleX) + offsetX;
+                        const screenY = (detection.bbox.y * scaleY) + offsetY;
+
+                        // Crea anchor PERSISTENTE
+                        this.anchors.set(char.id, {
+                            screenX,
+                            screenY,
+                            created: Date.now()
+                        });
+
+                        console.log(`✓ Anchor created for ${char.name} at (${screenX.toFixed(0)}, ${screenY.toFixed(0)}) - confidence: ${(detection.confidence * 100).toFixed(0)}%`);
+                        statusEl.textContent = `${char.yolo_object_class} detected (${(detection.confidence * 100).toFixed(0)}%)`;
+
+                        this.showCharacter(char);
+                    } else {
+                        statusEl.textContent = `${char.yolo_object_class} not found`;
+                        console.log(`No ${char.yolo_object_class} detected for ${char.name}`);
+                    }
+
+                } catch (error) {
+                    console.error('Detection error:', error);
+                    statusEl.textContent = `Error: ${error.message}`;
+                } finally {
+                    this.isDetecting = false;
+                }
+            }
+
+            showCharacter(char) {
+                const anchor = this.anchors.get(char.id);
+                if (!anchor) return;
+
+                let div = this.overlay.querySelector(`[data-char-id="${char.id}"]`);
+                const isNew = !div;
+
+                if (isNew) {
+                    div = document.createElement('div');
+                    div.className = 'ar-character';
+                    div.dataset.charId = char.id;
+                    div.style.opacity = '0';
+
+                    const img = document.createElement('img');
+                    img.src = char.character_image;
+                    img.style.width = (char.base_size * 100) + 'px';
+                    div.appendChild(img);
+
+                    this.overlay.appendChild(div);
+                }
+
+                // Posiziona usando anchor FISSO
+                const offsetX = (char.marker_offset_x || 0) * 50;  // Converti metri in pixel approssimati
+                const offsetY = (char.marker_offset_y || 0) * 50;
+
+                div.style.left = (anchor.screenX + offsetX) + 'px';
+                div.style.top = (anchor.screenY + offsetY) + 'px';
+                div.style.transform = 'translate(-50%, -50%)';
+                div.style.opacity = '1';
+            }
+
+            hideCharacter(charId) {
+                const div = this.overlay.querySelector(`[data-char-id="${charId}"]`);
+                if (div) {
+                    div.remove();
+                }
+            }
+
+            calculateDistance(lat1, lon1, lat2, lon2) {
+                const R = 6371e3;
+                const φ1 = lat1 * Math.PI / 180;
+                const φ2 = lat2 * Math.PI / 180;
+                const Δφ = (lat2 - lat1) * Math.PI / 180;
+                const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+                const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                          Math.cos(φ1) * Math.cos(φ2) *
+                          Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+                return R * c;
+            }
+
+            updateStatus(type, status, text = '') {
+                const indicator = document.getElementById(`${type}-indicator`);
+                if (indicator) {
+                    indicator.className = 'status-indicator status-' + status;
+                }
+                if (text && document.getElementById(`${type}-status`)) {
+                    document.getElementById(`${type}-status`).textContent = text;
+                }
+            }
+
+            updateLoadingText(text) {
+                document.getElementById('loading-text').textContent = text;
+            }
+
+            hideLoading() {
+                document.getElementById('loading-overlay').classList.add('hidden');
+            }
+        }
+
+        // Init
+        const camera = new ARCamera();
+        camera.init();
+    </script>
+</body>
+</html>

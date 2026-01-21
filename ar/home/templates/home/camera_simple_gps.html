@@ -368,28 +368,36 @@
 
                 // Match against each active character's marker
                 for (const [charId, char] of this.activeCharacters) {
-                    if (!this.markerTemplates.has(charId)) continue;
+                    if (!this.markerTemplates.has(charId)) {
+                        console.log(`${char.name}: No template loaded`);
+                        continue;
+                    }
 
                     const template = this.markerTemplates.get(charId);
                     const matches = this.matchFeatures(descriptors, template.descriptors);
 
-                    // SOGLIA PER SCENE REALI: molto più bassa perché angolazione/luce cambiano
-                    // Richiedi almeno 15% dei features (scene reali vs marker stampati)
-                    const minMatches = Math.max(30, Math.floor(char.positioning_marker_features * 0.15));
+                    console.log(`${char.name}: Found ${matches.length} raw matches`);
+
+                    // SOGLIA PER SCENE REALI: abbassata ulteriormente a 10%
+                    // Minimo assoluto ridotto a 15 per scene difficili
+                    const minMatches = Math.max(15, Math.floor(char.positioning_marker_features * 0.10));
 
                     if (matches.length < minMatches) {
-                        if (matches.length > 0) {
-                            console.log(`${char.name}: ${matches.length} matches < ${minMatches} required (${char.positioning_marker_features} features)`);
-                        }
+                        console.log(`${char.name}: ${matches.length} matches < ${minMatches} required (${char.positioning_marker_features} features, 10% threshold)`);
                         continue;
                     }
+
+                    console.log(`${char.name}: Passed count threshold, validating homography...`);
 
                     // Validate geometry with homography
                     const homographyResult = this.validateHomography(matches, keypoints, template.keypoints);
                     if (!homographyResult.valid) {
-                        console.log(`Marker ${char.name} rejected: ${homographyResult.reason} (${matches.length} matches)`);
+                        console.log(`Marker ${char.name} rejected by homography: ${homographyResult.reason} (${matches.length} matches)`);
                         continue;
                     }
+
+                    console.log(`${char.name}: Passed homography validation!`);
+
 
                     // Calculate marker center
                     let centerX = 0, centerY = 0;

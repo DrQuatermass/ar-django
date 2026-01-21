@@ -106,6 +106,23 @@ class CharConfiguration(models.Model):
         help_text="Numero di features ORB estratti dal positioning marker (calcolato automaticamente)"
     )
 
+    # YOLO Object Detection
+    use_yolo_detection = models.BooleanField(
+        default=False,
+        help_text="Usa YOLO per rilevare oggetti invece di marker immagine"
+    )
+    yolo_object_class = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        help_text="Classe oggetto FISSO da rilevare nei negozi/spazi urbani. Oggetti statici consigliati: chair (sedia), couch (divano), potted plant (pianta), dining table (tavolo), bench (panchina), tv (televisore), laptop, clock (orologio), vase (vaso), book (libro), bottle (bottiglia display), wine glass (bicchiere), cup (tazza), refrigerator (frigo), microwave, oven (forno), toaster, sink (lavandino), toilet, bed (letto), desk, monitor. EVITA: person, car, bicycle e oggetti mobili."
+    )
+    yolo_confidence_threshold = models.FloatField(
+        default=0.5,
+        validators=[MinValueValidator(0.1), MaxValueValidator(1.0)],
+        help_text="Soglia di confidenza minima per detection YOLO (0.5 = 50%)"
+    )
+
     def __str__(self):
         return self.name
 
