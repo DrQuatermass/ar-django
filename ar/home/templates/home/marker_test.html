@@ -227,26 +227,40 @@
         }
 
         async function testCharacterMarkers() {
-            if (!currentCharacter) return;
+            if (!currentCharacter) {
+                console.error('No character selected');
+                return;
+            }
 
+            console.log('Testing markers for:', currentCharacter.name);
             document.getElementById('results').innerHTML = '<p>⏳ Caricamento e analisi marker...</p>';
 
             let results = [];
 
-            // Test Detection Marker
-            if (currentCharacter.marker_image) {
-                const detectionResult = await testMarkerFromUrl(currentCharacter.marker_image, 'detection');
-                results.push(detectionResult);
-            }
+            try {
+                // Test Detection Marker
+                if (currentCharacter.marker_image) {
+                    console.log('Loading detection marker:', currentCharacter.marker_image);
+                    const detectionResult = await testMarkerFromUrl(currentCharacter.marker_image, 'detection');
+                    console.log('Detection marker analyzed');
+                    results.push(detectionResult);
+                }
 
-            // Test Positioning Marker
-            if (currentCharacter.positioning_marker_image) {
-                const positioningResult = await testMarkerFromUrl(currentCharacter.positioning_marker_image, 'positioning');
-                results.push(positioningResult);
-            }
+                // Test Positioning Marker
+                if (currentCharacter.positioning_marker_image) {
+                    console.log('Loading positioning marker:', currentCharacter.positioning_marker_image);
+                    const positioningResult = await testMarkerFromUrl(currentCharacter.positioning_marker_image, 'positioning');
+                    console.log('Positioning marker analyzed');
+                    results.push(positioningResult);
+                }
 
-            // Mostra risultati combinati
-            document.getElementById('results').innerHTML = results.join('<hr style="border-color: #555; margin: 20px 0;">');
+                // Mostra risultati combinati
+                console.log('Displaying results');
+                document.getElementById('results').innerHTML = results.join('<hr style="border-color: #555; margin: 20px 0;">');
+            } catch (error) {
+                console.error('Error testing markers:', error);
+                document.getElementById('results').innerHTML = `<div class="status bad"><h3>❌ Errore</h3><p>${error.message}</p></div>`;
+            }
         }
 
         function testMarkerFromUrl(url, type) {
