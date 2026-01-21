@@ -594,13 +594,14 @@
                 this.PERSISTENCE_FRAMES = 5; // Mantieni visibile per N frames dopo perdita marker
                 this.POSITION_HISTORY_SIZE = 2; // Media mobile su N posizioni (ridotto per reattività)
 
-                // Soglie dinamiche per ogni character (calcolate al 50% dei features del marker)
+                // Soglie dinamiche per ogni character (calcolate al 30% dei features del marker)
                 this.characterThresholds = new Map(); // charId -> { detectionShow, detectionHide, positioningShow, positioningHide }
-                this.DEFAULT_DETECTION_THRESHOLD = 0.50; // 50% dei features per detection
+                this.DEFAULT_DETECTION_THRESHOLD = 0.30; // 30% dei features per detection (più realistico, riduce falsi positivi)
                 this.DEFAULT_POSITIONING_THRESHOLD = 0.02; // 2% dei features per positioning (40 su 2000)
-                this.THRESHOLD_HYSTERESIS = 0.10; // 10% hysteresis per stabilità
+                this.THRESHOLD_HYSTERESIS = 0.08; // 8% hysteresis per stabilità
 
-                this.OUTLIER_THRESHOLD = 1.8; // Soglia outlier: 180% distanza media
+                this.OUTLIER_THRESHOLD = 1.5; // Soglia outlier: 150% distanza media (più restrittivo)
+                this.MIN_COMPACTNESS = 0.15; // Minima compattezza dei keypoints (area bbox / area convex hull)
                 this.EMA_ALPHA = 0.7; // AUMENTATO: Peso per EMA smoothing (0=smooth, 1=reattivo) - più reattivo
 
                 // Kalman filters per smoothing sensori
@@ -1157,21 +1158,37 @@
                             const bboxWidth = markerWidth + paddingX * 2;
                             const bboxHeight = markerHeight + paddingY * 2;
 
+                            // VERIFICA COMPATTEZZA: i keypoints devono essere raggruppati (non sparsi casualmente)
+                            // Calcola area bbox vs area totale occupata dai keypoints
+                            const bboxArea = markerWidth * markerHeight;
+                            let totalSpread = 0;
+                            matchedKeypoints.forEach(kp => {
+                                const dx = kp.x - centerX;
+                                const dy = kp.y - centerY;
+                                totalSpread += Math.sqrt(dx * dx + dy * dy);
+                            });
+                            const avgSpread = totalSpread / matchedKeypoints.length;
+                            const compactness = matchedKeypoints.length / (bboxArea || 1); // keypoints per pixel^2
+
+                            const isCompact = compactness > this.MIN_COMPACTNESS || matchedKeypoints.length < 20;
+
+                            console.log(`Detection compactness: ${compactness.toFixed(4)} (threshold: ${this.MIN_COMPACTNESS}), compact=${isCompact}`);
+
                             // ISTERESI: Soglie diverse per mostrare/nascondere (evita flickering)
                             // Usa soglie dinamiche specifiche per questo character
                             let showCharacter = false;
                             const currentState = this.characterStates.get(charId);
                             const thresholds = this.characterThresholds.get(charId) || {
-                                detectionShow: 250,
-                                detectionHide: 200
+                                detectionShow: 150,
+                                detectionHide: 110
                             };
 
                             if (currentState && currentState.visible) {
-                                // Già visibile: nasconde solo se scende sotto soglia bassa
-                                showCharacter = matches.length >= thresholds.detectionHide;
+                                // Già visibile: nasconde solo se scende sotto soglia bassa O non è più compatto
+                                showCharacter = matches.length >= thresholds.detectionHide && isCompact;
                             } else {
-                                // Non visibile: mostra solo se supera soglia alta
-                                showCharacter = matches.length >= thresholds.detectionShow;
+                                // Non visibile: mostra solo se supera soglia alta E è compatto
+                                showCharacter = matches.length >= thresholds.detectionShow && isCompact;
                             }
 
                             // Aggiorna stato character
