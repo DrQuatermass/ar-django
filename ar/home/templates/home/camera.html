@@ -2069,8 +2069,23 @@
                             const markerY = posMarker.screenY;
                             const markerWidth = posMarker.bbox[2];
 
-                            const scaleX = window.innerWidth / this.videoElement.videoWidth;
-                            const scaleY = window.innerHeight / this.videoElement.videoHeight;
+                            // Calcola scale e offset per object-fit: cover
+                            const videoAspect = this.videoElement.videoWidth / this.videoElement.videoHeight;
+                            const screenAspect = window.innerWidth / window.innerHeight;
+
+                            let scaleX, scaleY, offsetX = 0, offsetY = 0;
+
+                            if (videoAspect > screenAspect) {
+                                // Video più largo dello schermo → ritagliato ai lati
+                                scaleY = window.innerHeight / this.videoElement.videoHeight;
+                                scaleX = scaleY;
+                                offsetX = (window.innerWidth - (this.videoElement.videoWidth * scaleX)) / 2;
+                            } else {
+                                // Video più alto dello schermo → ritagliato sopra/sotto
+                                scaleX = window.innerWidth / this.videoElement.videoWidth;
+                                scaleY = scaleX;
+                                offsetY = (window.innerHeight - (this.videoElement.videoHeight * scaleY)) / 2;
+                            }
 
                             const pixelsPerMeter = markerWidth * scaleX / 0.3;
 
@@ -2086,13 +2101,20 @@
 
                             console.log(`📐 Offsets: marker-space=(${character.marker_offset_x}, ${character.marker_offset_y}, ${character.marker_offset_z}) → camera-space=(${offsetX_cameraSpace}, ${offsetY_cameraSpace}, ${offsetZ_cameraSpace})`);
 
-                            // NOTA: offsetZ influenza lo SCALE (più lontano = più piccolo), non la posizione X/Y
-                            // Per ora ignoriamo Z (da implementare in futuro con perspective projection)
-                            screenPosition = {
-                                x: (markerX * scaleX) + (offsetX_cameraSpace * pixelsPerMeter),
-                                y: (markerY * scaleY) + (offsetY_cameraSpace * pixelsPerMeter),
-                                visible: true
-                            };
+                            // Se offset Z è negativo (camera-space), il personaggio è DIETRO il marker → nascondi
+                            if (offsetZ_cameraSpace < -0.1) {
+                                console.log(`❌ Personaggio DIETRO il marker (Z=${offsetZ_cameraSpace}m) → nascosto`);
+                                screenPosition = { x: 0, y: 0, visible: false };
+                            } else {
+                                // Z >= 0: personaggio SUL marker o DAVANTI → mostra
+                                // In 2D proiettiamo tutto sullo stesso piano, ignorando la profondità Z
+                                screenPosition = {
+                                    x: (markerX * scaleX) + offsetX + (offsetX_cameraSpace * pixelsPerMeter),
+                                    y: (markerY * scaleY) + offsetY + (offsetY_cameraSpace * pixelsPerMeter),
+                                    visible: true
+                                };
+                                console.log(`✅ Personaggio DAVANTI/SUL marker (Z=${offsetZ_cameraSpace}m) → posizione=(${screenPosition.x}, ${screenPosition.y}) [video offset: ${offsetX}, ${offsetY}]`);
+                            }
 
                             const estimatedDistance = 1.0 / (markerWidth / this.videoElement.videoWidth);
                             const targetSizeAt5m = window.innerWidth / 3;
