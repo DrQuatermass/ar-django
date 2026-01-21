@@ -2330,9 +2330,25 @@
                 const baseSize = 80;
                 const imgSize = baseSize * scale;
 
+                // VALIDAZIONE screenPosition prima di usarlo
+                if (!screenPosition || screenPosition.x === undefined || screenPosition.y === undefined) {
+                    console.error(`❌ INVALID screenPosition for ${character.name}:`, screenPosition);
+                    return;
+                }
+
+                // Verifica bounds schermo
+                const isOutOfBounds = screenPosition.x < -500 || screenPosition.x > window.innerWidth + 500 ||
+                                     screenPosition.y < -500 || screenPosition.y > window.innerHeight + 500;
+                if (isOutOfBounds) {
+                    console.warn(`⚠️ Character ${character.name} OUT OF BOUNDS: x=${screenPosition.x.toFixed(0)}, y=${screenPosition.y.toFixed(0)} (screen: ${window.innerWidth}×${window.innerHeight})`);
+                }
+
+                console.log(`📍 Character ${character.name} position BEFORE smoothing: x=${screenPosition.x.toFixed(1)}, y=${screenPosition.y.toFixed(1)}, scale=${scale.toFixed(2)}`);
+
                 // Sistema di interpolazione smooth con requestAnimationFrame
                 // Aggiorna TARGET position invece di applicare direttamente
                 if (!this.characterSmoothPositions.has(character.id)) {
+                    console.log(`🆕 Initializing smooth position for ${character.name} at (${screenPosition.x.toFixed(1)}, ${screenPosition.y.toFixed(1)})`);
                     this.characterSmoothPositions.set(character.id, {
                         currentX: screenPosition.x,
                         currentY: screenPosition.y,
@@ -2357,10 +2373,11 @@
                     smoothPos.currentX = screenPosition.x;
                     smoothPos.currentY = screenPosition.y;
                     smoothPos.currentScale = scale;
+                    console.log(`🆕 NEW character ${character.name} - immediate position: (${smoothPos.currentX.toFixed(1)}, ${smoothPos.currentY.toFixed(1)})`);
                 }
 
                 // Usa current position per posizionamento iniziale
-                console.log(`🎨 Applying SMOOTHED position to DOM: raw=(${screenPosition.x.toFixed(1)}, ${screenPosition.y.toFixed(1)}) → smooth=(${smoothPos.currentX.toFixed(1)}, ${smoothPos.currentY.toFixed(1)})`);
+                console.log(`🎨 Applying SMOOTHED position to DOM: raw=(${screenPosition.x.toFixed(1)}, ${screenPosition.y.toFixed(1)}) → smooth=(${smoothPos.currentX.toFixed(1)}, ${smoothPos.currentY.toFixed(1)}) [screen: ${window.innerWidth}×${window.innerHeight}]`);
                 // Posizionamento iniziale (l'interpolazione smooth avviene in updateSmoothPositions)
                 characterDiv.style.left = smoothPos.currentX + 'px';
                 characterDiv.style.top = smoothPos.currentY + 'px';
