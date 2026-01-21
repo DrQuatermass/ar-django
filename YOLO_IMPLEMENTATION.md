@@ -74,8 +74,43 @@ Questo crea i nuovi campi nel database:
 - `marker_offset_x/y`: Offset dal punto di detection in metri
 - `base_size`: Scala immagine character
 
-### Classi YOLO Disponibili (80 oggetti COCO)
+### Classi YOLO Disponibili - Oggetti FISSI per Negozi/Spazi Urbani
 
+**OGGETTI CONSIGLIATI** (statici, sempre nella stessa posizione):
+
+**Arredamento:**
+- `chair` - Sedia (perfetto per bar, ristoranti, negozi)
+- `couch` - Divano (negozi arredamento, sale d'attesa)
+- `bench` - Panchina (spazi pubblici, parchi)
+- `dining table` - Tavolo (ristoranti, negozi)
+- `bed` - Letto (negozi arredamento)
+
+**Elettrodomestici:**
+- `refrigerator` - Frigorifero (negozi elettrodomestici, bar)
+- `microwave` - Microonde (negozi, cucine)
+- `oven` - Forno (negozi, panetterie)
+- `toaster` - Tostapane
+- `sink` - Lavandino
+- `toilet` - Toilette
+
+**Elettronica:**
+- `tv` - Televisore (negozi elettronica, vetrine)
+- `laptop` - Computer portatile (negozi informatica)
+- `clock` - Orologio (gioiellerie, negozi)
+
+**Decorazioni:**
+- `potted plant` - Pianta in vaso (molto comune ovunque!)
+- `vase` - Vaso decorativo
+- `book` - Libro (librerie, biblioteche)
+
+**Display/Vetrine:**
+- `bottle` - Bottiglia (farmacie, enoteche, negozi)
+- `wine glass` - Bicchiere da vino (ristoranti, bar)
+- `cup` - Tazza (bar, caffetterie)
+
+**EVITA** oggetti mobili: person, car, bicycle, backpack, cell phone, handbag, ecc.
+
+**Lista completa 80 oggetti COCO** (reference):
 ```
 person, bicycle, car, motorcycle, airplane, bus, train, truck, boat,
 traffic light, fire hydrant, stop sign, parking meter, bench, bird, cat, dog,

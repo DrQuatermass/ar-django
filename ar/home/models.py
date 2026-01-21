@@ -115,7 +115,7 @@ class CharConfiguration(models.Model):
         max_length=50,
         blank=True,
         null=True,
-        help_text="Classe oggetto da rilevare (es: 'bottle', 'chair', 'laptop') - Lista completa: person, bicycle, car, motorcycle, airplane, bus, train, truck, boat, traffic light, fire hydrant, stop sign, parking meter, bench, bird, cat, dog, horse, sheep, cow, elephant, bear, zebra, giraffe, backpack, umbrella, handbag, tie, suitcase, frisbee, skis, snowboard, sports ball, kite, baseball bat, baseball glove, skateboard, surfboard, tennis racket, bottle, wine glass, cup, fork, knife, spoon, bowl, banana, apple, sandwich, orange, broccoli, carrot, hot dog, pizza, donut, cake, chair, couch, potted plant, bed, dining table, toilet, tv, laptop, mouse, remote, keyboard, cell phone, microwave, oven, toaster, sink, refrigerator, book, clock, vase, scissors, teddy bear, hair drier, toothbrush"
+        help_text="Classe oggetto FISSO da rilevare nei negozi/spazi urbani. Oggetti statici consigliati: chair (sedia), couch (divano), potted plant (pianta), dining table (tavolo), bench (panchina), tv (televisore), laptop, clock (orologio), vase (vaso), book (libro), bottle (bottiglia display), wine glass (bicchiere), cup (tazza), refrigerator (frigo), microwave, oven (forno), toaster, sink (lavandino), toilet, bed (letto), desk, monitor. EVITA: person, car, bicycle e oggetti mobili."
     )
     yolo_confidence_threshold = models.FloatField(
         default=0.5,
