@@ -47,6 +47,9 @@ pip-delete-this-directory.txt
 .env.local
 .env.production
 
+# Claude Code settings (may contain sensitive data)
+.claude/settings.local.json
+
 # Coverage reports
 htmlcov/
 .coverage
