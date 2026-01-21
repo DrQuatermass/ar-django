@@ -37,6 +37,8 @@ def camera_view(request):
             'marker_offset_x': char.marker_offset_x,
             'marker_offset_y': char.marker_offset_y,
             'marker_offset_z': char.marker_offset_z,
+            'detection_marker_features': char.detection_marker_features,
+            'positioning_marker_features': char.positioning_marker_features,
         }
         character_data.append(data)
 
@@ -102,6 +104,8 @@ def get_character_data(request):
                 'marker_offset_x': char.marker_offset_x,
                 'marker_offset_y': char.marker_offset_y,
                 'marker_offset_z': char.marker_offset_z,
+                'detection_marker_features': char.detection_marker_features,
+                'positioning_marker_features': char.positioning_marker_features,
             }
             character_data.append(data)
 

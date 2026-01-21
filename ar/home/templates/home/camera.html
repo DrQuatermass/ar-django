@@ -593,8 +593,13 @@
                 this.characterStates = new Map(); // charId -> { visible, lastSeen, position, positionHistory, kalmanX, kalmanY }
                 this.PERSISTENCE_FRAMES = 5; // Mantieni visibile per N frames dopo perdita marker
                 this.POSITION_HISTORY_SIZE = 2; // Media mobile su N posizioni (ridotto per reattività)
-                this.HYSTERESIS_SHOW = 50; // Soglia detection marker per cercare positioning marker (bilanciata per evitare false positive)
-                this.HYSTERESIS_HIDE = 40; // Soglia per nascondere (con hysteresis di 10 per stabilità)
+
+                // Soglie dinamiche per ogni character (calcolate al 50% dei features del marker)
+                this.characterThresholds = new Map(); // charId -> { detectionShow, detectionHide, positioningShow, positioningHide }
+                this.DEFAULT_DETECTION_THRESHOLD = 0.50; // 50% dei features per detection
+                this.DEFAULT_POSITIONING_THRESHOLD = 0.02; // 2% dei features per positioning (40 su 2000)
+                this.THRESHOLD_HYSTERESIS = 0.10; // 10% hysteresis per stabilità
+
                 this.OUTLIER_THRESHOLD = 1.8; // Soglia outlier: 180% distanza media
                 this.EMA_ALPHA = 0.7; // AUMENTATO: Peso per EMA smoothing (0=smooth, 1=reattivo) - più reattivo
 
@@ -716,9 +721,21 @@
                                 type: 'detection'
                             });
 
+                            // Calcola soglie dinamiche per detection marker
+                            const detectionFeaturesDB = char.detection_marker_features || featureCount;
+                            const detectionShow = Math.round(detectionFeaturesDB * this.DEFAULT_DETECTION_THRESHOLD);
+                            const detectionHide = Math.round(detectionFeaturesDB * (this.DEFAULT_DETECTION_THRESHOLD - this.THRESHOLD_HYSTERESIS));
+
+                            this.characterThresholds.set(char.id, {
+                                detectionShow: detectionShow,
+                                detectionHide: detectionHide,
+                                positioningShow: 40,  // Default, verrà aggiornato se positioning marker presente
+                                positioningHide: 30
+                            });
+
                             mat.delete();
                             gray.delete();
-                            console.log(`Loaded detection marker for ${char.name}: ${featureCount} features`);
+                            console.log(`Loaded detection marker for ${char.name}: ${featureCount} features (DB: ${detectionFeaturesDB}), thresholds: show=${detectionShow}, hide=${detectionHide}`);
 
                             // POSITIONING MARKER - decide DOVE posizionare il character (opzionale)
                             if (char.positioning_marker_image) {
@@ -745,9 +762,20 @@
                                     type: 'positioning'
                                 });
 
+                                // Aggiorna soglie per positioning marker
+                                const positioningFeaturesDB = char.positioning_marker_features || posFeatureCount;
+                                const positioningShow = Math.round(positioningFeaturesDB * this.DEFAULT_POSITIONING_THRESHOLD);
+                                const positioningHide = Math.max(1, Math.round(positioningShow * 0.75)); // 75% della soglia show
+
+                                const thresholds = this.characterThresholds.get(char.id);
+                                if (thresholds) {
+                                    thresholds.positioningShow = positioningShow;
+                                    thresholds.positioningHide = positioningHide;
+                                }
+
                                 posMat.delete();
                                 posGray.delete();
-                                console.log(`Loaded positioning marker for ${char.name}: ${posFeatureCount} features`);
+                                console.log(`Loaded positioning marker for ${char.name}: ${posFeatureCount} features (DB: ${positioningFeaturesDB}), thresholds: show=${positioningShow}, hide=${positioningHide}`);
                             }
                         } catch (error) {
                             console.log(`Failed to load marker for ${char.name}:`, error);
@@ -1130,15 +1158,20 @@
                             const bboxHeight = markerHeight + paddingY * 2;
 
                             // ISTERESI: Soglie diverse per mostrare/nascondere (evita flickering)
+                            // Usa soglie dinamiche specifiche per questo character
                             let showCharacter = false;
                             const currentState = this.characterStates.get(charId);
+                            const thresholds = this.characterThresholds.get(charId) || {
+                                detectionShow: 250,
+                                detectionHide: 200
+                            };
 
                             if (currentState && currentState.visible) {
                                 // Già visibile: nasconde solo se scende sotto soglia bassa
-                                showCharacter = matches.length >= this.HYSTERESIS_HIDE;
+                                showCharacter = matches.length >= thresholds.detectionHide;
                             } else {
                                 // Non visibile: mostra solo se supera soglia alta
-                                showCharacter = matches.length >= this.HYSTERESIS_SHOW;
+                                showCharacter = matches.length >= thresholds.detectionShow;
                             }
 
                             // Aggiorna stato character
@@ -1180,8 +1213,8 @@
                             this.updateMarkerDebugOverlay(template.character.name, 'detection', matches.length, showCharacter);
 
                             // POSITIONING MARKER: Cerca solo se detection matches > soglia SHOW
-                            if (matches.length >= this.HYSTERESIS_SHOW && this.positioningMarkerTemplates.has(charId)) {
-                                console.log(`✅ Detection passed threshold (${matches.length} >= ${this.HYSTERESIS_SHOW}), checking positioning marker for ${template.character.name}`);
+                            if (matches.length >= thresholds.detectionShow && this.positioningMarkerTemplates.has(charId)) {
+                                console.log(`✅ Detection passed threshold (${matches.length} >= ${thresholds.detectionShow}), checking positioning marker for ${template.character.name}`);
                                 const posTemplate = this.positioningMarkerTemplates.get(charId);
                                 // Usa ratio test per positioning marker (più preciso)
                                 let posMatches = this.matchFeatures(descriptors, posTemplate.descriptors, keypoints, posTemplate.keypoints, true);

@@ -1,5 +1,11 @@
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.db.models.signals import pre_save
+from django.dispatch import receiver
+import cv2
+import numpy as np
+from PIL import Image
+import io
 
 # Create your models here.
 class CharConfiguration(models.Model):
@@ -89,5 +95,83 @@ class CharConfiguration(models.Model):
         validators=[MinValueValidator(-10), MaxValueValidator(10)],
         help_text="Offset profondità dal marker in metri (positivo = avanti)"
     )
+
+    # Feature counts for dynamic thresholds
+    detection_marker_features = models.IntegerField(
+        default=0,
+        help_text="Numero di features ORB estratti dal detection marker (calcolato automaticamente)"
+    )
+    positioning_marker_features = models.IntegerField(
+        default=0,
+        help_text="Numero di features ORB estratti dal positioning marker (calcolato automaticamente)"
+    )
+
+    def __str__(self):
+        return self.name
+
+
+def extract_orb_features(image_field, nfeatures=500):
+    """
+    Estrae features ORB da un'immagine Django ImageField
+    Returns: numero di features estratti (int)
+    """
+    if not image_field:
+        return 0
+
+    try:
+        # Leggi l'immagine dal field
+        image_field.open('rb')
+        image_data = image_field.read()
+        image_field.close()
+
+        # Converti in numpy array
+        pil_image = Image.open(io.BytesIO(image_data))
+        img_array = np.array(pil_image.convert('RGB'))
+
+        # Converti in grayscale
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+
+        # Estrai features ORB
+        orb = cv2.ORB_create(nfeatures)
+        keypoints, descriptors = orb.detectAndCompute(gray, None)
+
+        return len(keypoints) if keypoints else 0
+    except Exception as e:
+        print(f"Error extracting ORB features: {e}")
+        return 0
+
+
+@receiver(pre_save, sender=CharConfiguration)
+def calculate_marker_features(sender, instance, **kwargs):
+    """
+    Calcola automaticamente i features dei marker prima del salvataggio
+    """
+    # Calcola features del detection marker
+    if instance.marker_image:
+        try:
+            # Verifica se l'immagine è cambiata
+            if instance.pk:
+                old_instance = CharConfiguration.objects.get(pk=instance.pk)
+                if old_instance.marker_image != instance.marker_image:
+                    instance.detection_marker_features = extract_orb_features(instance.marker_image, nfeatures=500)
+            else:
+                # Nuova istanza
+                instance.detection_marker_features = extract_orb_features(instance.marker_image, nfeatures=500)
+        except Exception as e:
+            print(f"Error calculating detection marker features: {e}")
+
+    # Calcola features del positioning marker
+    if instance.positioning_marker_image:
+        try:
+            # Verifica se l'immagine è cambiata
+            if instance.pk:
+                old_instance = CharConfiguration.objects.get(pk=instance.pk)
+                if old_instance.positioning_marker_image != instance.positioning_marker_image:
+                    instance.positioning_marker_features = extract_orb_features(instance.positioning_marker_image, nfeatures=2000)
+            else:
+                # Nuova istanza
+                instance.positioning_marker_features = extract_orb_features(instance.positioning_marker_image, nfeatures=2000)
+        except Exception as e:
+            print(f"Error calculating positioning marker features: {e}")
 
 
