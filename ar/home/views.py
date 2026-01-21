@@ -6,6 +6,26 @@ from django.core.files.base import ContentFile
 from .models import CharConfiguration
 import json
 import base64
+import cv2
+import numpy as np
+from PIL import Image
+import io
+
+# YOLO model - caricato una sola volta all'avvio
+_yolo_model = None
+
+def get_yolo_model():
+    """Lazy loading del modello YOLO"""
+    global _yolo_model
+    if _yolo_model is None:
+        try:
+            from ultralytics import YOLO
+            _yolo_model = YOLO('yolov8n.pt')  # YOLOv8 nano (più leggero)
+            print("YOLO model loaded successfully")
+        except Exception as e:
+            print(f"Error loading YOLO model: {e}")
+            _yolo_model = False  # Segna come fallito per non ritentare
+    return _yolo_model if _yolo_model is not False else None
 
 # Create your views here.
 
@@ -230,3 +250,78 @@ def camera_simple_gps_view(request):
     }
 
     return render(request, 'home/camera_simple_gps.html', context)
+
+@csrf_exempt
+def yolo_detect_object(request):
+    """
+    API endpoint per YOLO object detection
+    Riceve un frame video e rileva oggetti specifici
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+    try:
+        data = json.loads(request.body)
+        image_b64 = data.get('image')
+        object_class = data.get('object_class', 'bottle')
+        confidence_threshold = float(data.get('confidence_threshold', 0.5))
+
+        if not image_b64:
+            return JsonResponse({'error': 'Missing image data'}, status=400)
+
+        # Decodifica immagine base64
+        if ',' in image_b64:
+            image_b64 = image_b64.split(',')[1]
+
+        img_data = base64.b64decode(image_b64)
+        nparr = np.frombuffer(img_data, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if img is None:
+            return JsonResponse({'error': 'Failed to decode image'}, status=400)
+
+        # Carica modello YOLO
+        model = get_yolo_model()
+        if model is None:
+            return JsonResponse({'error': 'YOLO model not available'}, status=500)
+
+        # Esegui detection
+        results = model(img, conf=confidence_threshold, verbose=False)
+
+        # Estrai detections per la classe richiesta
+        detections = []
+        if len(results) > 0:
+            result = results[0]
+            boxes = result.boxes
+
+            for box in boxes:
+                cls_id = int(box.cls[0])
+                class_name = result.names[cls_id]
+
+                if class_name == object_class:
+                    # Coordinate bounding box (xywh = center format)
+                    x, y, w, h = box.xywh[0].tolist()
+                    confidence = float(box.conf[0])
+
+                    detections.append({
+                        'class': class_name,
+                        'confidence': confidence,
+                        'bbox': {
+                            'x': x,
+                            'y': y,
+                            'w': w,
+                            'h': h
+                        }
+                    })
+
+        return JsonResponse({
+            'success': True,
+            'detections': detections,
+            'count': len(detections)
+        })
+
+    except Exception as e:
+        import traceback
+        print(f"YOLO detection error: {e}")
+        print(traceback.format_exc())
+        return JsonResponse({'error': str(e)}, status=500)
